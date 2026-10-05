@@ -1,0 +1,63 @@
+{% set req = r.run.request %}
+# Problem landscape — {{ req.country }} {{ req.industry }}
+
+Run #{{ r.run.id }} · {{ req.target_customer }} · {{ req.business_model }} · pack {{ r.run.pack }} · generated {{ r.generated_at }}
+Spent ${{ "%.2f"|format(r.run.spent_usd) }} of ${{ "%.2f"|format(r.run.budget_usd) }}.
+
+Submarkets: {{ r.run.submarkets|join(", ") }}
+
+> Intermediate report (milestone M3). Every quote below was found verbatim (or, where marked
+> *fuzzy*, near-verbatim) in the fetched source. Problem names and descriptions are model-written
+> summaries of the clustered signals; the quotes are the evidence. Nothing here has been verified
+> against competitors or buyers yet.
+
+## Funnel
+
+| Step | Count |
+|---|---:|
+{% for row in r.funnel %}
+| {{ row.step }} | {{ row.count if row.count is not none else "–" }} |
+{% endfor %}
+
+Quote verification pass rate: {{ r.quality.quote_pass_rate|pct }} ({{ r.quality.quotes_fuzzy or 0 }} fuzzy) ·
+first-hand signals: {{ r.quality.first_hand_share|pct }} ·
+signals in no cluster: {{ r.quality.noise_signals if r.quality.noise_signals is not none else "–" }}
+
+Gate 1: evidence strength ≥ {{ r.gate.min_strength }} and ≥ {{ r.gate.min_independent_sources }} independent sources; at most {{ r.gate.max_shortlisted }} problems.
+
+## Shortlisted problems
+
+{% if not r.shortlist %}
+No problem passed Gate 1. Evidence is insufficient for this market with the current queries — see
+the list below for what was found.
+{% endif %}
+{% for p in r.shortlist %}
+### {{ p.rank }}. {{ p.name }}
+
+*Summary (model-written):* {{ p.description }}
+
+- Evidence strength **{{ "%.1f"|format(p.evidence_strength) }}/10** · {{ p.independent_sources }} independent sources · {{ p.signals }} signals · first-hand {{ p.first_hand_share|pct }}
+- Strength components: {% for k, v in p.strength_components.items() %}{{ k }} {{ "%.2f"|format(v) }}{{ ", " if not loop.last }}{% endfor %}
+
+- Sources: {% for k, v in p.source_category_mix.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}
+
+- Signal types: {% for k, v in p.signal_type_mix.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}
+
+
+{% for q in p.quotes %}
+> „{{ q.quote|replace("\n", " ") }}"
+> — *{{ q.translation|replace("\n", " ") }}*
+> [{{ q.domain }}]({{ q.url }}) · {{ q.category or "unlisted" }}, {{ q.tier }} tier{{ " · snippet only" if q.snippet_only }} · {{ q.published or "undated" }} · {{ q.type }}{{ " · first-hand" if q.first_hand }}{{ " · fuzzy match" if q.verified == "fuzzy" }}
+
+{% endfor %}
+{% endfor %}
+## Insufficient evidence
+
+{% if not r.insufficient_evidence %}
+None: every cluster passed Gate 1.
+{% endif %}
+{% for p in r.insufficient_evidence %}
+- **{{ p.name }}** — strength {{ "%.1f"|format(p.evidence_strength or 0) }}/10, {{ p.independent_sources }} independent sources, {{ p.signals }} signals. Not shortlisted: {{ p.failed_rules|join("; ") }}.
+  {% if p.quotes %}Strongest quote: „{{ p.quotes[0].quote|replace("\n", " ") }}" ([{{ p.quotes[0].domain }}]({{ p.quotes[0].url }}))
+  {% endif %}
+{% endfor %}

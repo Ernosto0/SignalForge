@@ -31,3 +31,8 @@ def canonicalize_url(url: str) -> str:
 def domain_of(url: str) -> str:
     """Registrable-ish host of a URL without ``www.`` (e.g. ``forum.example.com.tr``)."""
     return (urlsplit(url).hostname or "").lower().removeprefix("www.")
+
+
+def in_domain(domain: str, parent: str) -> bool:
+    """``domain`` is ``parent`` or one of its subdomains (``forum.a.com`` is in ``a.com``)."""
+    return domain == parent or domain.endswith(f".{parent}")

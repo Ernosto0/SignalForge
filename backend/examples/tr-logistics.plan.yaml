@@ -1,0 +1,65 @@
+# Example reviewed plan (the human checkpoint, plan §4) for the TR logistics golden market.
+# Until the `plan` stage exists (M1) this is written by hand from the pack's industry seeds.
+#
+#   uv run signalforge query-gen --plan examples/tr-logistics.plan.yaml --out queries.csv
+request:
+  country: TR
+  industry: logistics
+  problem_area: null
+  target_customer: SMB
+  business_model: B2B SaaS
+  founder:
+    team: solo developer
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 10
+
+submarkets:
+  - name: Road freight
+    name_tr: Karayolu yük taşımacılığı / nakliye
+    terms: [sevkiyat takibi, irsaliye, CMR, sefer, navlun, boş dönüş, yük bulma, araç takip,
+            U-ETDS, takograf, şoför evrakı, teslim tutanağı]
+    actors: [nakliye firması, nakliyeci, filo yöneticisi, operasyon sorumlusu, sevkiyat sorumlusu]
+  - name: International freight forwarding
+    name_tr: Uluslararası taşımacılık / forwarder
+    terms: [navlun teklifi, konşimento, parsiyel yük, konteyner takibi, booking, ATR, EUR.1,
+            yükleme talimatı, acente yazışmaları]
+    actors: [forwarder firması, dış ticaret operasyon uzmanı, ihracat sorumlusu, satış temsilcisi]
+  - name: Warehousing
+    name_tr: Depolama / antrepo
+    terms: [stok takibi, depo sayımı, raf adresleme, barkod, mal kabul, sipariş toplama, sevk
+            hazırlığı, antrepo, WMS, stok farkı]
+    actors: [depo sorumlusu, depo şefi, lojistik müdürü, 3PL depo firması]
+  - name: Courier and last mile
+    name_tr: Kargo / son kilometre teslimat
+    terms: [kargo entegrasyonu, teslimat rotası, kurye takibi, iade süreci, kapıda ödeme,
+            gönderi takibi, toplu kargo çıkışı]
+    actors: [e-ticaret satıcısı, kurye firması, dağıtım sorumlusu, bölge müdürü]
+    notes: Business-side pain only (sellers, courier operators), not end customers' parcel complaints.
+  - name: Customs brokerage
+    name_tr: Gümrük müşavirliği
+    terms: [gümrük beyannamesi, GTİP, dosya takibi, evrak takibi, ithalat dosyası, ihracat
+            beyannamesi, müşteri evrak toplama]
+    actors: [gümrük müşaviri, gümrük müşavir yardımcısı, ithalat sorumlusu]
+  - name: Cold chain
+    name_tr: Soğuk zincir lojistiği
+    terms: [sıcaklık takibi, ısı kaydı, data logger, frigorifik araç, soğuk hava deposu,
+            sıcaklık raporu, denetim]
+    actors: [soğuk zincir sorumlusu, gıda lojistiği firması, ilaç deposu, kalite sorumlusu]
+
+research_questions:
+  - Which recurring operational workflows do SMB logistics firms still run on Excel, WhatsApp, phone or paper?
+  - Where do existing logistics / ERP tools fail SMBs (price, complexity, missing integrations)?
+  - Which regulatory obligations (e-İrsaliye, U-ETDS, KVKK) create new manual work?
+
+buyer_hypotheses:
+  - Owner-operators of 5–50 truck fleets pay for tools that cut operations headcount.
+  - Customs brokers pay per-file for document collection and tracking tools.
+
+avoid:
+  - consumer parcel complaints ("kargom gelmedi" style end-customer complaints)
+  - logistics company marketing pages and SEO listicles
+  - job seekers' questions about salaries or careers

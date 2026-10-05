@@ -54,7 +54,8 @@ class ResearchRun(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
     status: Mapped[str] = mapped_column(String(32), default="created")
-    # created | planned | running | paused_budget | failed | completed
+    # created | planned | running | stopped (requested stages done; resumable) | paused_budget |
+    # failed | completed
     request: Mapped[dict[str, Any]] = mapped_column(JSONB)
     plan: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     pack_id: Mapped[str] = mapped_column(String(16))
@@ -95,6 +96,8 @@ class Query(Base):
         String(16)
     )  # pain | verify | competitor | regulatory | jobs
     submarket: Mapped[str | None] = mapped_column(Text)
+    # {signal_type, source_hint, origin: llm | pack_seed} — lets query yield be broken down later
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -131,6 +134,40 @@ class Document(Base):
     lang: Mapped[str | None] = mapped_column(String(8))
 
 
+class UrlCandidate(Base):
+    """One unique (canonical) URL from a run's search results, with its triage decision and fetch
+    outcome. Search results collapse into candidates; kept candidates become documents."""
+
+    __tablename__ = "url_candidates"
+    __table_args__ = (UniqueConstraint("run_id", "canonical_url"),)
+
+    id: Mapped[int] = _pk()
+    run_id: Mapped[int] = _run_fk()
+    canonical_url: Mapped[str] = mapped_column(Text)
+    url: Mapped[str] = mapped_column(Text)  # best-ranked original URL
+    domain: Mapped[str] = mapped_column(String(255))
+    title: Mapped[str | None] = mapped_column(Text)
+    snippet: Mapped[str | None] = mapped_column(Text)
+    source_category: Mapped[str | None] = mapped_column(String(32))
+    quality_tier: Mapped[str] = mapped_column(String(8))  # high | medium | low
+    access: Mapped[str] = mapped_column(String(16))  # fetch | snippet_only
+    query_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger))
+    best_rank: Mapped[int] = mapped_column(Integer)
+    # True when every query that found it carried a `site:` hint for another domain (Google
+    # silently drops `site:` when nothing on the site matches).
+    off_site: Mapped[bool] = mapped_column(Boolean, default=False)
+    decision: Mapped[str] = mapped_column(String(8))  # keep | reserve | drop
+    # prefilter rule (skip_domain | file_type) or llm | below_min_score | unjudged
+    decision_rule: Mapped[str] = mapped_column(String(24))
+    triage_score: Mapped[int | None] = mapped_column(Integer)  # 0–3
+    triage_label: Mapped[str | None] = mapped_column(String(24))
+    triage_reason: Mapped[str | None] = mapped_column(Text)
+    priority: Mapped[int | None] = mapped_column(Integer)  # fetch order among keep + reserve
+    fetch_status: Mapped[str | None] = mapped_column(String(24))  # FetchStatus | snippet_only | …
+    fetch_error: Mapped[str | None] = mapped_column(Text)
+    document_id: Mapped[int | None] = mapped_column(ForeignKey("documents.id", ondelete="SET NULL"))
+
+
 # --- evidence -------------------------------------------------------------------------------
 
 
@@ -138,13 +175,17 @@ class Excerpt(Base):
     __tablename__ = "excerpts"
 
     id: Mapped[int] = _pk()
+    run_id: Mapped[int] = _run_fk()
     document_id: Mapped[int] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), index=True
     )
-    quote: Mapped[str] = mapped_column(Text)  # original language, verbatim
+    # Original language, verbatim: the matched span of the source text, not the model's copy.
+    quote: Mapped[str] = mapped_column(Text)
     translation: Mapped[str | None] = mapped_column(Text)
+    # Offsets into the source text (page text, or "title\nsnippet" for snippet-only documents).
     char_start: Mapped[int | None] = mapped_column(Integer)
     char_end: Mapped[int | None] = mapped_column(Integer)
+    source: Mapped[str] = mapped_column(String(8), default="text")  # text | snippet
     verified: Mapped[str] = mapped_column(String(8))  # exact | fuzzy
     author_hash: Mapped[str | None] = mapped_column(String(64))  # salted; never the raw name
 
@@ -163,6 +204,8 @@ class Signal(Base):
     workflow: Mapped[str | None] = mapped_column(Text)
     statement: Mapped[str] = mapped_column(Text)
     first_hand: Mapped[bool] = mapped_column(Boolean)
+    # {submarket: plan submarket name | absent}; later stages add {counter, origin} (M4)
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
 
 
 class IndependenceGroup(Base):
@@ -184,11 +227,20 @@ class ProblemCluster(Base):
     signal_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger))
     independent_source_count: Mapped[int] = mapped_column(Integer, default=0)
     source_category_mix: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    signal_type_mix: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     evidence_strength: Mapped[float | None] = mapped_column(Float)
+    strength: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)  # component breakdown
+    # Gate 1 (shortlist stage): [{rule, passed, value, threshold}] so every decision is explainable.
+    shortlisted: Mapped[bool] = mapped_column(Boolean, default=False)
+    gate_trace: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    rank: Mapped[int | None] = mapped_column(Integer)  # by evidence strength, 1 = strongest
+    # The cluster's inference claim ("<actor> has <problem>"), derived from its signals' facts.
+    claim_id: Mapped[int | None] = mapped_column(ForeignKey("claims.id", ondelete="SET NULL"))
 
 
 class Claim(Base):
     __tablename__ = "claims"
+    __table_args__ = (Index("ix_claims_run_id_stage", "run_id", "stage"),)
 
     id: Mapped[int] = _pk()
     run_id: Mapped[int] = _run_fk()

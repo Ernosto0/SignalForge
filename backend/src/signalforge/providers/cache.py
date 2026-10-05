@@ -74,6 +74,14 @@ class CacheStore:
             self._store(namespace, key, request, response, now)
         return Cached(response, hit=False, created_at=now)
 
+    def peek(self, namespace: str, request: dict[str, Any]) -> dict[str, Any] | None:
+        """The stored response for ``request`` in any mode and regardless of age, else ``None``.
+
+        For reading back what an earlier stage already fetched (never calls a provider).
+        """
+        entry = self._load(namespace, cache_key(request))
+        return entry.response if entry is not None else None
+
     def purge(self, namespace: str | None = None) -> int:
         with self._session_factory.begin() as session:
             stmt = delete(CacheEntry)

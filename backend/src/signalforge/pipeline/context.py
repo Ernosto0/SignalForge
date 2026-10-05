@@ -23,6 +23,7 @@ class RunContext:
     search: CachedSearch
     fetcher: CachedFetcher
     llm: LLMService
+    run_id: int | None = None
 
     @classmethod
     def create(
@@ -55,4 +56,5 @@ class RunContext:
                 defaults.llm.max_output_tokens,
                 run_id=run_id,
             ),
+            run_id=run_id,
         )

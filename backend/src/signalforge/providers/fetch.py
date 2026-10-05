@@ -186,3 +186,8 @@ class CachedFetcher:
             cacheable=lambda r: not FetchedPage.model_validate(r).transient,
         )
         return FetchedPage.model_validate({**cached.response, "cache_hit": cached.hit})
+
+    def cached(self, url: str) -> FetchedPage | None:
+        """The stored page for ``url`` without fetching (any cache mode, any age)."""
+        response = self.cache.peek("page", {"canonical_url": canonicalize_url(url)})
+        return FetchedPage.model_validate({**response, "cache_hit": True}) if response else None

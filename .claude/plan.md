@@ -2,6 +2,10 @@
 
 > Status: approved design baseline, pre-code. Supersedes the original vision draft.
 > Rule for implementers: if code and this file disagree, fix one of them in the same change.
+> Companion: [agent-modules.md](agent-modules.md) groups the stages below into 9 agent modules with
+> build-ready specs. Each milestone in §13 says which agents it builds; the same mapping, seen from
+> the agent side, is in [agent-modules.md §11](agent-modules.md#11-build-order-by-milestone).
+> Keep the two files in step.
 
 ---
 
@@ -143,7 +147,7 @@ All stage I/O is Pydantic (`domain/`); persisted via SQLAlchemy (`db/`) with JSO
 |---|---|---|
 | `ResearchRun` | request, plan, pack_version, config_hash, status, budget_usd, spent_usd | |
 | `StageRun` | run_id, stage, status, input_hash, started/finished, cost_usd, error, metrics (JSON) | progress + resume |
-| `Query` | run_id, text, lang, intent (`pain` / `verify` / `competitor` / `regulatory` / `jobs`), submarket | yield tracked per query |
+| `Query` | run_id, text (incl. any `site:` suffix), lang, intent (`pain` / `verify` / `competitor` / `regulatory` / `jobs`), submarket, meta (`signal_type`, `source_hint`, `origin` = `llm` / `pack_seed`) | yield tracked per query, broken down by meta |
 | `SearchResult` | query_id, url, title, snippet, rank, provider | |
 | `Document` | canonical_url, domain, source_category, quality_tier, published_at (nullable), fetched_at, text_hash, lang, `snippet_only` flag | full text in cache table, not exported |
 | `Excerpt` | document_id, quote (original), translation, char_start/end, verified (`exact` / `fuzzy`), author_hash | ≤ ~500 chars |
@@ -174,7 +178,7 @@ monitoring is possible without a schema rewrite.
 | Stage | Model tier | Input → Output | Mechanical guards |
 |---|---|---|---|
 | plan | analysis | request + pack industry seeds → submarkets, research questions, buyer hypotheses, plan.yaml | human checkpoint |
-| query_gen | fast | plan × pack pain phrases × source hints → queries (Turkish) | dedupe, cap |
+| query_gen | fast | plan × pack pain phrases × source hints → queries (Turkish); one call per submarket, pack regulatory seeds added verbatim | operators stripped, `site:` hints only from the registry domains offered for the intent, Turkish-aware dedupe (exact + near-dup), per-submarket / intent / signal-type quotas, cap |
 | search | — | queries → results | cache, rate limit |
 | triage | fast (batch-eligible) | title/snippet/domain → keep/drop + reason | domain tier pre-filter (low tier needs stronger signal) |
 | fetch | — | URLs → documents | robots.txt, per-domain concurrency, size limit, lang detect |
@@ -184,11 +188,16 @@ monitoring is possible without a schema rewrite.
 | shortlist | — | clusters → shortlist | Gate 1 (deterministic) |
 | verify | analysis + fast | problem → extra evidence, entailment-checked claims | step/fetch caps |
 | competitors | analysis | problem → competitors, feature/price facts, gap matrix | every matrix cell is a claim or `unknown` |
-| commercial | analysis | problem + evidence + competitors → opportunities, buyer roles, economic model, WTP | assumptions explicit; ranges only |
+| commercial | analysis | problem + evidence + competitors → opportunities, buyer roles, economic model, WTP | assumptions explicit; ranges only. *Open decision (§14):* agent-modules.md builds this as two stages, `buyers` + `monetization` |
 | score | analysis (+ code) | opportunities → ScoreCards | §8 rules; uncited judgments capped |
 | report | synthesis | ScoreCards + claim table → report.json → md/html | citation validator (§7) |
 
 Prompts live in `prompts/<stage>.md` with a version header; the version is recorded on every `LLMCall`.
+
+Each stage belongs to exactly one agent module ([agent-modules.md §0.4](agent-modules.md#04-overview)):
+`plan` → planner; `query_gen`…`dedupe` → source_discovery; `extract`, `cluster` → problem_discovery;
+`shortlist`, `verify` → evidence_validator; `competitors` → competitor_research; `commercial` →
+buyer_research + monetization; `score` → opportunity_scorer; `report` → report_writer.
 
 ---
 
@@ -311,11 +320,16 @@ Adding a country = adding a pack; no code changes expected.
 Responses API).
 - Structured output only: Pydantic schemas via `client.responses.parse(..., text_format=Model)`,
   read from `response.output_parsed`.
-- Tiers mapped in config (`LLM_MODEL_*` env vars), not hard-coded:
-  - `fast` → `gpt-6-luna` ($0.10 / $0.50 per MTok): triage, extraction, entailment, query gen
-  - `analysis` → `gpt-6.1-sol` ($2 / $10): clustering, verification, competitors, commercial, scoring
-  - `synthesis` → `gpt-6.1-sol` by default; `gpt-6-astra` ($10 / $50) is an opt-in upgrade for the final
-    report once we can measure whether it's worth 5× the price
+- Tiers mapped in config (`LLM_MODEL_*` env vars), not hard-coded. **During development every tier
+  defaults to `gpt-6-luna`** ($0.10 / $0.50 per MTok) so iterating on prompts and stages stays cheap:
+  - `fast`: triage, extraction, entailment, query gen
+  - `analysis`: clustering, verification, competitors, commercial, scoring
+  - `synthesis`: final report
+- Stronger models are opt-in per tier via env, for quality-gate runs (M3 exit labeling, M7 evaluation)
+  and for production defaults once we've measured what they buy on the replay fixtures (§11):
+  `LLM_MODEL_ANALYSIS=gpt-6.1-sol` ($2 / $10, 20× luna), `LLM_MODEL_SYNTHESIS=gpt-6.1-sol` or
+  `gpt-6-astra` ($10 / $50, 100× luna). If luna fails a stage's mechanical guards (e.g. cluster
+  assignment validation) too often to develop against, raise only that tier.
 - **Batch API** (`/v1/responses`, 50% cheaper, ≤24 h window) for triage/extract when `--batch` is set;
   sync with bounded concurrency is the default for dev iteration.
 - **Prompt caching** is automatic on OpenAI for repeated prefixes: keep the stable system prompt + pack
@@ -377,14 +391,16 @@ backend/
     cli.py               # typer: version, serve, search, fetch, llm-check, ledger, purge-cache,
                          # (later) plan / run / label / fixture
     config.py            # pydantic-settings (root .env) + typed config/defaults.yaml
+    text.py              # Turkish-aware normalisation (I/ı/İ/i casefold) for dedupe + quote matching
     packs.py             # market pack loader + source registry lookup
     api/                 # FastAPI app + routes (health exists)
+    agents/              # base.py, loop.py, one module per agent (agent-modules.md); STAGES derives from AGENTS
     pipeline/
       runner.py          # ordering, resume, --from, budget enforcement
       context.py         # RunContext: db, llm, search, fetcher, pack, budget, cache mode
       stages/            # plan, query_gen, search, triage, fetch, extract, dedupe, cluster,
                          # shortlist, verify, competitors, commercial, score, report
-    domain/              # Pydantic models (stage I/O, report.json schema)
+    domain/              # Pydantic models (stage I/O, plan.yaml schema, report.json schema)
     db/                  # base.py, session.py, migrations/ (Alembic)
     providers/           # llm.py, fetch.py, search/{base,serpapi}.py, cache.py, urls.py
     evidence/            # quotes.py, dedup.py, independence.py, strength.py, entailment.py
@@ -399,35 +415,68 @@ backend/
 
 ## 13. Milestones (each with an exit criterion)
 
+Each milestone lists the agents it builds (*Agents:* line, linking to the spec in
+[agent-modules.md](agent-modules.md)). An agent that spans two milestones is split by stage.
+
 **M0 — Foundations.** ✅ *Done 2026-10-05.* Repo, config, DB schema + migrations, LLM client with ledger + cache, SERP +
 fetch providers with cache, TR pack skeleton.
+*Agents:* none; this is the provider, ledger and cache layer every agent uses.
 *Exit:* `signalforge search "<turkish query>"` returns cached results; a structured LLM call is logged
 with cost; replay mode works.
 
 **M1 — Plan & queries.** Request → plan.yaml (editable) → Turkish query set. Verify/curate `sources.yaml`.
+*Progress 2026-10-05:* `query_gen` done (`signalforge query-gen --plan examples/tr-logistics.plan.yaml`):
+150 queries for TR logistics, ≈$0.011 and ≈45 s per run. The plan.yaml schema is fixed (`domain/plan.py`);
+the `plan` stage that writes it is still to do. Five prompt iterations were checked against ≈40 live
+SerpApi probes. What worked: job ads on kariyer.net (duty lists name the manual work being paid for);
+`<vendor> şikayet` on sikayetvar.com (first-hand complaints from business customers); a specific technical
+anchor plus "forum" (practitioner threads on accountants', e-commerce and transport forums). What failed:
+first-person sentences and Excel/WhatsApp workaround keywords (tutorials/templates, 0/7); ambiguous anchors
+("planlama", "depo", "nakliye", "booking"); `site:` hints for sites that don't carry the topic. Google
+silently drops a `site:` restriction that matches nothing, so the search stage should flag off-domain hits
+for hinted queries. Pain signal-type weights in `defaults.yaml` are provisional and get re-tuned from
+per-query yield once M2 measures it.
+*Agents:* [planner](agent-modules.md#1-agentsplannerpy--planner) (`plan`, to do) ·
+[source_discovery](agent-modules.md#2-agentssource_discoverypy--source-discovery) (`query_gen` ✅).
 *Exit:* for TR logistics, ≥100 queries a Turkish-speaking reviewer judges sensible.
 
 **M2 — Collection.** search → triage → fetch → dedupe.
+*Agents:* [source_discovery](agent-modules.md#2-agentssource_discoverypy--source-discovery) (`search`,
+`triage`, `fetch`, `dedupe`: stages built, exit not yet recorded) plus the agent framework
+(`agents/base.py`, `AGENTS`, `run --agent`) and `evidence/documents.py`.
 *Exit:* ≥150 documents for TR logistics; duplicate collapse rate and fetch success reported.
 
 **M3 — Signals & problem landscape.** extract (verified quotes), independence, clustering, evidence
 strength, Gate 1; render an intermediate **problem landscape report**.
+*Agents:* [problem_discovery](agent-modules.md#3-agentsproblem_discoverypy--problem-discovery)
+(`extract`, `cluster`) · [evidence_validator](agent-modules.md#4-agentsevidence_validatorpy--evidence-validator)
+part 1 (`shortlist` / Gate 1).
 *Exit:* quote verification pass ≥ 95% of kept excerpts; on 50 labeled signals ≥ 70% are real first-hand
 B2B pain (tune until met). **This is the first test of the core thesis — don't proceed until a founder
 reading the landscape report finds it useful.**
 
 **M4 — Verification & competitors.** Bounded loops, entailment checks, competitor facts, gap matrix.
+*Agents:* [evidence_validator](agent-modules.md#4-agentsevidence_validatorpy--evidence-validator) part 2
+(`verify`, entailment) · [competitor_research](agent-modules.md#5-agentscompetitor_researchpy--competitor-research)
+(`competitors`). Both use the shared loop in `agents/loop.py`.
 *Exit:* every gap-matrix cell is a cited fact or `unknown`.
 
 **M5 — Commercial analysis & scoring.** Buyer roles, economic model, WTP, Gate 2, ScoreCards,
 categories, founder fit, experiment selection.
+*Agents:* [buyer_research](agent-modules.md#6-agentsbuyer_researchpy--buyer-research) (`buyers`) ·
+[monetization](agent-modules.md#7-agentsmonetizationpy--monetization) (`monetization`, Gate 2) ·
+[opportunity_scorer](agent-modules.md#8-agentsopportunity_scorerpy--opportunity-scorer) (`score`).
+Settle the `commercial` split (§14) before starting.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.
+*Agents:* [report_writer](agent-modules.md#9-agentsreport_writerpy--report-writer) (`report`).
 *Exit:* 100% of factual bullets cited; validator catches seeded uncited/hallucinated bullets in tests.
 
 **M7 — Multi-market evaluation.** Run on ≥5 TR markets (logistics, construction, accounting, export,
 e-commerce, …), label with the founder checklist, tune thresholds/weights/prompts against fixtures.
+*Agents:* no new agents; tune every agent's config block and prompts against the fixtures. Each
+agent's metrics come from `StageRun.metrics`; `signalforge ledger --by agent` gives cost per agent.
 *Exit:* founder verdict "something I would investigate" for ≥1 opportunity in ≥3 markets; cost per run
 known.
 
@@ -436,6 +485,7 @@ research form, progress (from StageRuns), opportunity cards, detail page, source
 (The FastAPI app and Next.js frontend are scaffolded already — see §12 — but feature work waits until
 the pipeline proves research quality. Small UI views may be added earlier where they speed up review,
 e.g. a landscape-report viewer in M3.)
+*Agents:* no new agents; the API and UI show progress per agent by grouping StageRuns with `AGENTS`.
 
 Roadmap after V0: V1 evidence-backed discovery (M0–M7) → V1.5 better competitor/buyer research +
 platform adapters → V2 iterative autonomous research + embeddings → V3 continuous market intelligence.
@@ -448,7 +498,9 @@ platform adapters → V2 iterative autonomous research + embeddings → V3 conti
 |---|---|
 | SERP provider | SerpApi (Google engine, `gl=tr&hl=tr`) |
 | LLM provider | OpenAI; Jev to be evaluated per stage after V0 works |
+| LLM models | `gpt-6-luna` for all tiers during development; `gpt-6.1-sol` / `gpt-6-astra` opt-in for quality evaluation (§10) |
 | Report language | English, with original Turkish quotes + translations |
 | Per-run budget | $10 hard cap (estimate $3–8/run; measure in M7) |
 | Frontend stack | Next.js (App Router, TS, Tailwind) — scaffolded; `/api/*` proxied to FastAPI |
 | Project name / license | SignalForge (temporary) / Apache-2.0 |
+| Commercial analysis | Two stages, `buyers` + `monetization`, as in [agent-modules.md §6–7](agent-modules.md#6-agentsbuyer_researchpy--buyer-research), instead of the one `commercial` stage in §4/§6. Decide at the start of M5; merge back if M5 evaluation shows errors compounding. Once decided, update §4, §6 and §12 to match. |

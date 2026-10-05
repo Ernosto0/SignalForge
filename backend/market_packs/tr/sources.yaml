@@ -2,26 +2,53 @@
 # Tiers are starting guesses from plan §9 and are verified in M1 (robots.txt, fetchability, signal
 # quality). access: fetch | snippet_only (login-walled or JS-only: use the SERP snippet as evidence).
 # A domain entry also matches its subdomains.
+# `notes` are shown to query_gen as the description of what a site hint will find, so keep them
+# about content ("what is on this site"), not about tiers.
 sources:
   # --- high: official / statistics / associations
-  - { domain: resmigazete.gov.tr, category: official, tier: high, access: fetch }
-  - { domain: gib.gov.tr, category: official, tier: high, access: fetch }
+  - { domain: resmigazete.gov.tr, category: official, tier: high, access: fetch,
+      notes: "Official Gazette: full text of laws, regulations, communiqués and their deadlines" }
+  - { domain: gib.gov.tr, category: official, tier: high, access: fetch,
+      notes: "Tax administration: e-Fatura, e-Arşiv, e-İrsaliye, e-Defter rules and transition dates" }
+  - { domain: efatura.gov.tr, category: official, tier: high, access: fetch,
+      notes: "e-Belge portal: e-document guides and mandatory-user lists" }
+  - { domain: kvkk.gov.tr, category: official, tier: high, access: fetch,
+      notes: "Personal data protection authority (KVKK, VERBİS): decisions and guides" }
   - { domain: tuik.gov.tr, category: statistics, tier: high, access: fetch }
-  - { domain: tobb.org.tr, category: association, tier: high, access: fetch }
-  - { domain: utikad.org.tr, category: association, tier: high, access: fetch, notes: logistics }
-  - { domain: und.org.tr, category: association, tier: high, access: fetch, notes: road transport }
+  - { domain: tobb.org.tr, category: association, tier: high, access: fetch,
+      notes: "Union of chambers: sector assemblies, member reports" }
+  - { domain: utikad.org.tr, category: association, tier: high, access: fetch,
+      notes: "Freight forwarders' association: sector news, circulars, reports" }
+  - { domain: und.org.tr, category: association, tier: high, access: fetch,
+      notes: "International road transport association: circulars, carriers' problems at borders" }
   # --- medium: job postings, complaints, reviews, forums
-  - { domain: kariyer.net, category: jobs, tier: medium, access: fetch }
+  - { domain: kariyer.net, category: jobs, tier: medium, access: fetch,
+      notes: "Largest job board; job-ad pages with duty lists are indexed (verified 2026-10-05)" }
   - { domain: secretcv.com, category: jobs, tier: medium, access: fetch }
   - { domain: yenibiris.com, category: jobs, tier: medium, access: fetch }
   - domain: sikayetvar.com
     category: complaints
     tier: medium
     access: fetch
-    notes: B2C-heavy; use for tool_complaint on B2B products
-  - { domain: play.google.com, category: reviews, tier: medium, access: snippet_only }
-  - { domain: technopat.net, category: forum, tier: medium, access: fetch }
-  - { domain: donanimhaber.com, category: forum, tier: medium, access: fetch }
-  - { domain: linkedin.com, category: social, tier: medium, access: snippet_only }
+    notes: >-
+      Complaint pages per company (B2C-heavy). Useful with a named B2B vendor or software product
+      ("<vendor> şikayet"); generic topics return consumer complaints
+  - { domain: play.google.com, category: reviews, tier: medium, access: snippet_only,
+      notes: "App listing pages; individual reviews are rarely indexed" }
+  - { domain: alomaliye.com, category: forum, tier: medium, access: fetch,
+      notes: "Accountants' forum (forum.alomaliye.com): invoicing, e-documents, SMB bookkeeping practice. Found via SERP 2026-10-05; fetch not yet verified" }
+  - { domain: mustafagulsen.com, category: forum, tier: medium, access: fetch,
+      notes: "Accountants' forum (forum.mustafagulsen.com): tax and document practice of SMBs incl. carriers. Found via SERP 2026-10-05; fetch not yet verified" }
+  - { domain: r10.net, category: forum, tier: medium, access: fetch,
+      notes: "Webmaster / e-commerce sellers' forum: marketplace, cargo and software integration problems. Found via SERP 2026-10-05; fetch not yet verified" }
+  - { domain: ulasimplatformu.com, category: forum, tier: medium, access: fetch,
+      notes: "Transport sector forum (forum.ulasimplatformu.com): trucks, fleets, carriers' news and discussion. Found via SERP 2026-10-05; fetch not yet verified" }
+  - { domain: technopat.net, category: forum, tier: medium, access: fetch,
+      notes: "General tech/consumer forum; only for software, hardware or IT-setup questions" }
+  - { domain: donanimhaber.com, category: forum, tier: medium, access: fetch,
+      notes: "General tech/consumer forum; only for software, hardware or IT-setup questions" }
+  - { domain: linkedin.com, category: social, tier: medium, access: snippet_only,
+      notes: "Professionals' posts and articles; few are indexed, site: queries often return nothing" }
   # --- low: anonymous opinion
-  - { domain: eksisozluk.com, category: forum, tier: low, access: fetch, notes: anonymous/opinion }
+  - { domain: eksisozluk.com, category: forum, tier: low, access: fetch,
+      notes: "Anonymous opinion; mostly consumers and jokes, rarely operational detail" }

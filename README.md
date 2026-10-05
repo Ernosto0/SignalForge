@@ -56,6 +56,15 @@ signalforge fetch https://example.com.tr/yazi          # robots.txt, rate limit,
 signalforge llm-check                                  # one structured LLM call, logged with cost
 signalforge ledger                                     # recent LLM calls and total spend
 signalforge purge-cache --namespace page               # delete cached pages (search | page | llm)
+signalforge query-gen --plan examples/tr-logistics.plan.yaml --out queries.csv
+                                                       # new run from a reviewed plan -> Turkish queries
+signalforge query-gen --run 3                          # regenerate a run's queries (LLM calls cached)
+signalforge run --run 3 --from extract                 # re-run signals → clusters → Gate 1 (needs AUTHOR_HASH_SALT)
+signalforge landscape 3 --out reports                  # problem landscape report: json, md, html (no LLM)
+signalforge signals 3 --out signals.csv                # signals with quotes, sources, clusters, labels
+signalforge label signals 3 --n 50                     # y/n: real first-hand B2B pain? (M3 exit: ≥ 70% y)
+signalforge label clusters 3                           # y/n: one coherent, distinct problem?
+signalforge labels 3                                   # label precision by signal type and source
 ```
 
 Search results, pages and LLM responses are cached in Postgres (`cache_entries`). The cache mode

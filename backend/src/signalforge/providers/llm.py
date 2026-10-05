@@ -11,7 +11,7 @@ from enum import StrEnum
 from typing import Any, Protocol
 
 from openai import OpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -58,10 +58,12 @@ class LLMClient(Protocol):
 
 
 class OpenAIClient:
-    def __init__(self, api_key: str | None, timeout_s: float = 120) -> None:
+    def __init__(
+        self, api_key: str | None, timeout_s: float = 120, client: OpenAI | None = None
+    ) -> None:
         self._api_key = api_key
         self._timeout_s = timeout_s
-        self._client: OpenAI | None = None
+        self._client = client
 
     def parse(
         self,
@@ -76,7 +78,7 @@ class OpenAIClient:
             if not self._api_key:
                 raise LLMError("no OpenAI API key configured (set OPENAI_API_KEY in .env)")
             self._client = OpenAI(api_key=self._api_key, timeout=self._timeout_s)
-        response = self._client.responses.parse(
+        raw = self._client.responses.with_raw_response.parse(
             model=model,
             instructions=instructions,
             input=input,
@@ -84,6 +86,26 @@ class OpenAIClient:
             max_output_tokens=max_output_tokens,
             store=False,
         )
+        try:
+            response = raw.parse()
+        except ValidationError as exc:
+            # Output cut off at max_output_tokens (or otherwise not valid JSON): the SDK raises
+            # while parsing, but the tokens were spent, so report them from the raw body.
+            body = raw.http_response.json()
+            usage_body = body.get("usage") or {}
+            return Completion(
+                parsed=None,
+                input_tokens=usage_body.get("input_tokens", 0),
+                cached_tokens=(usage_body.get("input_tokens_details") or {}).get(
+                    "cached_tokens", 0
+                ),
+                output_tokens=usage_body.get("output_tokens", 0),
+                response_id=body.get("id"),
+                error=(
+                    f"invalid structured output (status={body.get('status')}, "
+                    f"details={body.get('incomplete_details')}): {exc.errors()[0]['msg']}"
+                ),
+            )
         usage = response.usage
         parsed = response.output_parsed
         error = None
@@ -147,8 +169,11 @@ class LLMService:
         schema: type[T],
         *,
         stage: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> LLMResult[T]:
+        """``max_output_tokens`` overrides the configured default for calls with large outputs."""
         model = self._models[tier]
+        max_output_tokens = max_output_tokens or self._max_output_tokens
         price = self._pricing.get(model)
         if price is None:
             raise LLMError(f"no pricing for model {model!r} in config/defaults.yaml (llm.pricing)")
@@ -158,7 +183,7 @@ class LLMService:
                 "instructions": prompt.text,
                 "input": input,
                 "schema": schema.model_json_schema(),
-                "max_output_tokens": self._max_output_tokens,
+                "max_output_tokens": max_output_tokens,
             }
         )
         ledger = {
@@ -180,7 +205,7 @@ class LLMService:
                     instructions=prompt.text,
                     input=input,
                     schema=schema,
-                    max_output_tokens=self._max_output_tokens,
+                    max_output_tokens=max_output_tokens,
                 )
             except Exception as exc:
                 self._record(ledger, error=f"{type(exc).__name__}: {exc}")

@@ -33,3 +33,127 @@ llm:
     gpt-6-sol:   { input: 2.00, cached_input: 0.20, output: 10.00 }
     gpt-6.1-sol: { input: 2.00, cached_input: 0.20, output: 10.00 }
     gpt-6-astra: { input: 10.00, cached_input: 1.00, output: 50.00 }
+
+query_gen:
+  # Hard cap on stored queries for a run (plan §4).
+  max_queries: 150
+  # Per-submarket quota split. The pack's regulatory seeds are added on top as market-wide queries
+  # (and count toward max_queries). Job ads get a large share: in the first SERP checks they were
+  # the most reliable first-hand B2B signal (duties name the manual work being paid for).
+  intent_mix: { pain: 0.55, jobs: 0.30, regulatory: 0.15 }
+  # Split of each submarket's pain quota across signal types. Provisional, from ~40 SERP probes
+  # (2026-10-05): named-vendor complaints ("<vendor> şikayet") were the most reliable first-hand
+  # pain; Excel/WhatsApp workaround queries returned tutorials and templates (0/7); price and
+  # wish queries mostly return vendor pages. Re-tune from per-query yield once M2 measures it.
+  pain_signal_mix:
+    { complaint: 0.30, tool_complaint: 0.30, workaround: 0.15, wish: 0.15, price_signal: 0.10 }
+  # Share of drafts the model is asked to restrict with `site:<registry domain>`; the rest search
+  # the open web, where most long-tail Turkish B2B pain lives. Google silently ignores a `site:`
+  # with no matching pages, so pain hints are kept rare.
+  site_hint_share: { pain: 0.20, jobs: 0.70, regulatory: 0.30 }
+  # Registry categories (sources.yaml) offered as source hints per intent. `reviews`
+  # (play.google.com) is left out: app listing pages are indexed, individual reviews rarely are.
+  source_categories:
+    pain: [forum, complaints, social]
+    jobs: [jobs]
+    regulatory: [official, association]
+  # Drafts requested = quota × overgenerate, so invalid / duplicate drafts don't leave gaps.
+  overgenerate: 1.4
+  min_words: 2
+  max_words: 10
+  # Google returns little for several exact phrases; extra quotes are removed.
+  max_quoted_phrases: 1
+  # rapidfuzz token_sort_ratio at or above which two queries (same source hint) are duplicates.
+  near_dup_ratio: 90
+  pack_seed_queries: true
+  concurrency: 4
+  # One call drafts ~35 queries for a submarket; reasoning tokens count toward this limit too.
+  # At the global 4000 the fast model's output was cut off mid-JSON.
+  max_output_tokens: 16000
+
+# --- M2 collection: search → triage → fetch → dedupe (plan §4) ------------------------------
+
+collect:
+  # SerpApi calls in flight. Results are cached, so reruns of later stages cost no searches.
+  search_concurrency: 4
+  # Retries per query on provider errors/timeouts (SerpApi timed out ~1 in 15 calls at 30 s).
+  search_retries: 2
+
+triage:
+  # URLs kept for fetching (plan §4). Candidates that pass the score bar beyond this cap are kept
+  # as a ranked reserve: fetch draws from it when kept URLs fail, so dead links don't cost documents.
+  max_urls: 200
+  # One domain may fill at most this many of the kept slots (independence; job boards dominate).
+  max_per_domain: 30
+  # Minimum triage score (0–3, prompts/triage.md) by source tier: low tier needs a stronger signal.
+  min_score: { high: 1, medium: 2, low: 2 }
+  # Never worth a slot: video/social platforms we cannot fetch or quote.
+  skip_domains: [youtube.com, instagram.com, facebook.com, tiktok.com, x.com, twitter.com,
+                 pinterest.com, spotify.com, wikipedia.org]
+  # The fetcher only extracts HTML (plan §10); documents are dropped before the model sees them.
+  skip_extensions: [.pdf, .doc, .docx, .xls, .xlsx, .ppt, .pptx, .zip, .rar]
+  batch_size: 25
+  concurrency: 4
+  max_output_tokens: 8000
+
+fetch_stage:
+  # Stop once this many documents exist (fetched + snippet-only), plan §4.
+  max_documents: 200
+  # Hard cap on page downloads per run, including failures and reserve backfill.
+  max_attempts: 320
+  concurrency: 8
+
+dedupe:
+  # Word shingles over Turkish-casefolded tokens.
+  shingle_words: 5
+  num_perm: 128
+  # Estimated Jaccard similarity at or above which two documents are near-duplicates.
+  near_dup_threshold: 0.8
+  # Shorter texts produce too few shingles for a stable estimate; only exact text matches count.
+  min_words: 40
+
+# --- M3 signals & problem landscape: extract → cluster → shortlist (plan §4, §7, §8.1) -------
+
+extract:
+  # Page text is split into chunks of about this many characters (cut at a paragraph or sentence
+  # boundary); one fast-model call per chunk. Pages longer than the chunks allowed are truncated.
+  chunk_chars: 8000
+  chunk_overlap_chars: 300
+  max_chunks_per_doc: 3
+  max_signals_per_chunk: 8
+  # Verified quotes outside these bounds are dropped (too short to be evidence / not an excerpt).
+  min_quote_chars: 20
+  max_quote_chars: 500
+  # rapidfuzz partial ratio for a quote that is not an exact match after normalisation (plan §7.1).
+  fuzzy_min_ratio: 95
+  concurrency: 4
+  max_output_tokens: 8000
+
+cluster:
+  max_clusters: 25
+  # More signals than this are clustered in chunks, then the chunk clusters are merged.
+  max_signals_per_call: 400
+  # Smaller clusters go to noise: one signal is not a problem pattern.
+  min_cluster_size: 2
+  # A lone regulatory signal (one obligation, one official source) may form its own cluster.
+  keep_regulatory_singletons: true
+  max_output_tokens: 16000
+
+# Evidence strength, 0–10 (plan §8.1). Deterministic; feeds Gate 1 and later Confidence.
+strength:
+  weights: { sources: 0.35, diversity: 0.15, quality: 0.20, recency: 0.10, directness: 0.20 }
+  # Independent sources at which the source component saturates (log-scaled).
+  source_saturation: 10
+  # Distinct source categories (unlisted domains count as one) at which diversity saturates.
+  diversity_saturation: 4
+  tier_weights: { high: 1.0, medium: 0.6, low: 0.2 }
+  snippet_only_factor: 0.5
+  recency_months: 24
+  # Recency credit for a source without a publication date.
+  unknown_date: 0.5
+
+# Gate 1 (plan §4). min_strength is provisional: calibrate on the first labelled runs.
+shortlist:
+  min_strength: 4.0
+  min_independent_sources: 3
+  max_shortlisted: 10

@@ -1,0 +1,144 @@
+{% set req = r.run.request %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Problem landscape — {{ req.country }} {{ req.industry }}</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --fg: #1d1d1f; --muted: #6b6b70; --line: #e4e2dd; --card: #ffffff;
+    --accent: #2f5d8a; --quote: #f3f1ec; --warn: #9a5b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #ececee; --muted: #9a9aa2; --line: #2e2e33; --card: #1e1e21;
+      --accent: #8db6e0; --quote: #26262a; --warn: #e0a957;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  h3 { font-size: 1.05rem; margin: 0 0 6px; }
+  .meta, .muted { color: var(--muted); font-size: 0.9rem; }
+  .note {
+    border-left: 3px solid var(--accent); padding: 8px 12px; margin: 16px 0;
+    background: var(--card); color: var(--muted); font-size: 0.9rem;
+  }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  .card {
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+    padding: 16px; margin: 16px 0;
+  }
+  .stats { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.9rem; margin: 8px 0; }
+  .stats b { font-variant-numeric: tabular-nums; }
+  .bar { display: inline-block; height: 6px; background: var(--accent); border-radius: 3px; vertical-align: middle; }
+  .chips span {
+    display: inline-block; font-size: 0.8rem; border: 1px solid var(--line); border-radius: 10px;
+    padding: 0 8px; margin: 2px 4px 2px 0; color: var(--muted);
+  }
+  blockquote { margin: 12px 0; padding: 10px 12px; background: var(--quote); border-radius: 6px; }
+  blockquote p { margin: 0; }
+  blockquote .tr { color: var(--muted); font-style: italic; margin-top: 4px; }
+  blockquote .src { font-size: 0.8rem; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
+  a { color: var(--accent); }
+  .fuzzy { color: var(--warn); }
+  details { margin: 8px 0; }
+  summary { cursor: pointer; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Problem landscape — {{ req.country }} {{ req.industry }}</h1>
+  <div class="meta">
+    Run #{{ r.run.id }} · {{ req.target_customer }} · {{ req.business_model }} · pack {{ r.run.pack }} ·
+    generated {{ r.generated_at }} · spent ${{ "%.2f"|format(r.run.spent_usd) }} of ${{ "%.2f"|format(r.run.budget_usd) }}
+  </div>
+  <div class="meta">Submarkets: {{ r.run.submarkets|join(", ") }}</div>
+
+  <div class="note">
+    Intermediate report (milestone M3). Every quote was found verbatim (or, where marked
+    <span class="fuzzy">fuzzy</span>, near-verbatim) in the fetched source. Problem names and
+    descriptions are model-written summaries of the clustered signals; the quotes are the evidence.
+    Nothing here has been checked against competitors or buyers yet.
+  </div>
+
+  <h2>Funnel</h2>
+  <table>
+    {% for row in r.funnel %}
+    <tr><td>{{ row.step }}</td><td class="n">{{ row.count if row.count is not none else "–" }}</td></tr>
+    {% endfor %}
+  </table>
+  <p class="muted">
+    Quote verification pass rate {{ r.quality.quote_pass_rate|pct }} ({{ r.quality.quotes_fuzzy or 0 }} fuzzy) ·
+    first-hand signals {{ r.quality.first_hand_share|pct }} ·
+    signals in no cluster: {{ r.quality.noise_signals if r.quality.noise_signals is not none else "–" }}.
+    Gate 1: evidence strength ≥ {{ r.gate.min_strength }} and ≥ {{ r.gate.min_independent_sources }}
+    independent sources; at most {{ r.gate.max_shortlisted }} problems.
+  </p>
+
+  <h2>Shortlisted problems</h2>
+  {% if not r.shortlist %}
+  <p>No problem passed Gate 1. Evidence is insufficient for this market with the current queries;
+  see below for what was found.</p>
+  {% endif %}
+  {% for p in r.shortlist %}
+  <section class="card">
+    <h3>{{ p.rank }}. {{ p.name }}</h3>
+    <p><span class="muted">Summary (model-written):</span> {{ p.description }}</p>
+    <div class="stats">
+      <span>Evidence strength <b>{{ "%.1f"|format(p.evidence_strength) }}</b>/10
+        <span class="bar" style="width: {{ (p.evidence_strength * 8)|round|int }}px"></span></span>
+      <span><b>{{ p.independent_sources }}</b> independent sources</span>
+      <span><b>{{ p.signals }}</b> signals</span>
+      <span>first-hand <b>{{ p.first_hand_share|pct }}</b></span>
+    </div>
+    <div class="chips">
+      {% for k, v in p.strength_components.items() %}<span>{{ k }} {{ "%.2f"|format(v) }}</span>{% endfor %}
+    </div>
+    <div class="chips">
+      {% for k, v in p.source_category_mix.items() %}<span>{{ k }} × {{ v }}</span>{% endfor %}
+      {% for k, v in p.signal_type_mix.items() %}<span>{{ k }} × {{ v }}</span>{% endfor %}
+    </div>
+    {% for q in p.quotes %}
+    <blockquote>
+      <p lang="tr">„{{ q.quote }}"</p>
+      <p class="tr">{{ q.translation }}</p>
+      <div class="src">
+        <a href="{{ q.url }}" rel="noopener noreferrer">{{ q.domain }}</a> ·
+        {{ q.category or "unlisted" }}, {{ q.tier }} tier{{ " · snippet only" if q.snippet_only }} ·
+        {{ q.published or "undated" }} · {{ q.type }}{{ " · first-hand" if q.first_hand }}
+        {% if q.verified == "fuzzy" %}· <span class="fuzzy">fuzzy match</span>{% endif %}
+      </div>
+    </blockquote>
+    {% endfor %}
+  </section>
+  {% endfor %}
+
+  <h2>Insufficient evidence</h2>
+  {% if not r.insufficient_evidence %}<p>None: every cluster passed Gate 1.</p>{% endif %}
+  {% for p in r.insufficient_evidence %}
+  <details>
+    <summary><b>{{ p.name }}</b> — strength {{ "%.1f"|format(p.evidence_strength or 0) }}/10,
+      {{ p.independent_sources }} independent sources, {{ p.signals }} signals.
+      <span class="muted">{{ p.failed_rules|join("; ") }}</span></summary>
+    <p><span class="muted">Summary (model-written):</span> {{ p.description }}</p>
+    {% for q in p.quotes[:2] %}
+    <blockquote>
+      <p lang="tr">„{{ q.quote }}"</p>
+      <p class="tr">{{ q.translation }}</p>
+      <div class="src"><a href="{{ q.url }}" rel="noopener noreferrer">{{ q.domain }}</a> · {{ q.type }}</div>
+    </blockquote>
+    {% endfor %}
+  </details>
+  {% endfor %}
+</main>
+</body>
+</html>

@@ -1,10 +1,6 @@
-from typing import Literal
-
 from pydantic import BaseModel
 
-SignalType = Literal[
-    "complaint", "workaround", "labor_spend", "wish", "tool_complaint", "price_signal", "regulatory"
-]
+from signalforge.domain.evidence import SignalType
 
 
 class PainCheck(BaseModel):
