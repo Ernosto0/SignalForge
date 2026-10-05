@@ -30,6 +30,22 @@ class ExtractionBatch(BaseModel):
     signals: list[ExtractedSignal]
 
 
+# How a second-round signal relates to the problem being verified (verify stage).
+Stance = Literal["supports", "counter", "unrelated"]
+
+
+class VerifySignal(ExtractedSignal):
+    """A signal from a page the verify loop read, judged against the problem under verification."""
+
+    stance: Stance
+
+
+class VerifyExtractionBatch(BaseModel):
+    """Output of the ``verify_extract`` prompt for one chunk of one document."""
+
+    signals: list[VerifySignal]
+
+
 class ClusterDraft(BaseModel):
     name: str  # English, ≤ 8 words
     description: str  # English, 1–2 sentences: who, which workflow, what goes wrong

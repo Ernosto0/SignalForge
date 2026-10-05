@@ -432,7 +432,9 @@ def load_evidence(
             for s, doc_id in session.execute(
                 select(Signal, Excerpt.document_id)
                 .join(Excerpt, Signal.excerpt_id == Excerpt.id)
-                .where(Signal.run_id == ctx.run_id)
+                # Only extract's signals: verify's second-round signals belong to one problem
+                # and are kept apart in ProblemCluster.verification.
+                .where(Signal.run_id == ctx.run_id, Excerpt.stage == "extract")
                 .order_by(Signal.id)
             )
         ]

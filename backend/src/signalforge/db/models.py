@@ -132,6 +132,12 @@ class Document(Base):
     fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     text_hash: Mapped[str | None] = mapped_column(String(64))
     lang: Mapped[str | None] = mapped_column(String(8))
+    # Which stage stored it: collect (search → fetch) | verify | competitor (the M4 loops).
+    origin: Mapped[str] = mapped_column(String(16), default="collect", server_default="collect")
+    # The problem cluster a loop document was found for (null for collected documents).
+    problem_id: Mapped[int | None] = mapped_column(
+        ForeignKey("problem_clusters.id", ondelete="SET NULL")
+    )
 
 
 class UrlCandidate(Base):
@@ -188,6 +194,8 @@ class Excerpt(Base):
     source: Mapped[str] = mapped_column(String(8), default="text")  # text | snippet
     verified: Mapped[str] = mapped_column(String(8))  # exact | fuzzy
     author_hash: Mapped[str | None] = mapped_column(String(64))  # salted; never the raw name
+    # The stage that wrote it (extract | verify | competitors); stages delete only their own.
+    stage: Mapped[str] = mapped_column(String(32), default="extract", server_default="extract")
 
 
 class Signal(Base):
@@ -204,7 +212,7 @@ class Signal(Base):
     workflow: Mapped[str | None] = mapped_column(Text)
     statement: Mapped[str] = mapped_column(Text)
     first_hand: Mapped[bool] = mapped_column(Boolean)
-    # {submarket: plan submarket name | absent}; later stages add {counter, origin} (M4)
+    # {submarket}; verify adds {origin: "verify", problem_id, counter: bool}
     meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
 
 
@@ -236,11 +244,17 @@ class ProblemCluster(Base):
     rank: Mapped[int | None] = mapped_column(Integer)  # by evidence strength, 1 = strongest
     # The cluster's inference claim ("<actor> has <problem>"), derived from its signals' facts.
     claim_id: Mapped[int | None] = mapped_column(ForeignKey("claims.id", ondelete="SET NULL"))
+    # verify stage: what the second round added and how the evidence changed; the Gate-1 columns
+    # above are left as shortlist computed them (evidence/clusters.py reads both).
+    verification: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 class Claim(Base):
     __tablename__ = "claims"
-    __table_args__ = (Index("ix_claims_run_id_stage", "run_id", "stage"),)
+    __table_args__ = (
+        Index("ix_claims_run_id_stage", "run_id", "stage"),
+        Index("ix_claims_run_id_kind", "run_id", "kind"),
+    )
 
     id: Mapped[int] = _pk()
     run_id: Mapped[int] = _run_fk()
@@ -250,6 +264,11 @@ class Claim(Base):
     derived_from: Mapped[list[int]] = mapped_column(ARRAY(BigInteger), default=list)  # claim ids
     stage: Mapped[str] = mapped_column(String(32))
     entailment_checked: Mapped[bool] = mapped_column(Boolean, default=False)
+    # supported | partial | not_supported | contradicted (evidence/entailment.py); null = unchecked
+    entailment: Mapped[str | None] = mapped_column(String(16))
+    # Per kind: facts from competitors carry {competitor_id, kind}; entailment adds
+    # {entailment_note, entailment_by}; assumptions (M5) carry their dated values.
+    meta: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
 
 
 # --- analysis -------------------------------------------------------------------------------
@@ -267,7 +286,7 @@ class Competitor(Base):
     url: Mapped[str | None] = mapped_column(Text)
     segment: Mapped[str | None] = mapped_column(Text)
     geo: Mapped[str | None] = mapped_column(String(64))
-    # [{amount, currency, period, observed_at, claim_id}]
+    # [{amount, currency, period, plan_name, observed_at, claim_id}]; never converted here
     pricing: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
 
 
@@ -275,10 +294,12 @@ class GapMatrix(Base):
     __tablename__ = "gap_matrices"
 
     id: Mapped[int] = _pk()
+    run_id: Mapped[int] = _run_fk()
     problem_id: Mapped[int] = mapped_column(
         ForeignKey("problem_clusters.id", ondelete="CASCADE"), unique=True
     )
-    # {dimensions: [...], competitor_ids: [...], cells: {dim: {competitor_id: {value, claim_id}}}}
+    # {dimensions: [{key, label, from_signal_ids}], competitor_ids: [...],
+    #  cells: {dim: {competitor_id: {value, claim_id}}}, gaps: [{dimension, claim_id}]}
     matrix: Mapped[dict[str, Any]] = mapped_column(JSONB)
 
 

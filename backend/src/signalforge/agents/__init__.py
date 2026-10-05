@@ -1,24 +1,21 @@
-"""The research agents in run order (agent-modules.md §0). Later agents are appended as built.
+"""Research agents (agent-modules.md §0): named groups of pipeline stages, one per research job.
 
-``planner`` is not here: it runs before a run exists (human checkpoint). The pipeline's stage
-order is derived from this tuple, so there is one source of truth for ordering.
+``AGENTS``, ``STAGES`` and ``get_agent`` live in :mod:`signalforge.agents.registry` and are loaded
+lazily: stage modules import shared agent code (``agents/loop.py``), and the agent modules import
+the stages, so importing the registry eagerly here would be circular.
 """
 
+from typing import Any
+
 from signalforge.agents.base import Agent
-from signalforge.agents.evidence_validator import EVIDENCE_VALIDATOR
-from signalforge.agents.problem_discovery import PROBLEM_DISCOVERY
-from signalforge.agents.source_discovery import SOURCE_DISCOVERY
-
-AGENTS: tuple[Agent, ...] = (SOURCE_DISCOVERY, PROBLEM_DISCOVERY, EVIDENCE_VALIDATOR)
-
-STAGES = tuple(stage for agent in AGENTS for stage in agent.stages)
 
 
-def get_agent(name: str) -> Agent:
-    for agent in AGENTS:
-        if agent.name == name:
-            return agent
-    raise ValueError(f"unknown agent {name!r}; agents: {', '.join(a.name for a in AGENTS)}")
+def __getattr__(name: str) -> Any:
+    if name in ("AGENTS", "STAGES", "get_agent"):
+        from signalforge.agents import registry
+
+        return getattr(registry, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 __all__ = ["AGENTS", "STAGES", "Agent", "get_agent"]

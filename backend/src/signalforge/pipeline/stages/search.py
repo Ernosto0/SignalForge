@@ -1,4 +1,6 @@
-"""search stage (plan §4, §6): every query of the run → SERP results, via the record/replay cache.
+"""search stage (plan §4, §6): the run's collection queries → SERP results, via the record/replay
+cache. Queries written by the M4 loops (``verify`` / ``competitor`` intents) carry their own
+results and are never re-searched here.
 
 Provider errors are retried; a query that still fails is counted and skipped, so one flaky call
 doesn't sink the run. Rerunning the stage re-searches only what isn't cached.
@@ -15,6 +17,7 @@ from sqlalchemy import delete, select
 from signalforge.db.models import Query, SearchResult
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult
+from signalforge.pipeline.stages.query_gen import INTENTS
 from signalforge.providers.cache import cache_key
 from signalforge.providers.search import SearchError, SearchResponse
 from signalforge.providers.urls import canonicalize_url, domain_of, in_domain
@@ -37,7 +40,9 @@ class Search:
         locale = ctx.pack.search
         with ctx.db() as session:
             queries = session.scalars(
-                select(Query).where(Query.run_id == ctx.run_id).order_by(Query.id)
+                select(Query)
+                .where(Query.run_id == ctx.run_id, Query.intent.in_(INTENTS))
+                .order_by(Query.id)
             ).all()
         if not queries:
             raise ValueError(f"run {ctx.run_id} has no queries; run query_gen first")

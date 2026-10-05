@@ -157,3 +157,48 @@ shortlist:
   min_strength: 4.0
   min_independent_sources: 3
   max_shortlisted: 10
+
+# --- M4 verification & competitors: verify → competitors (plan §4, §7) -----------------------
+
+# Second-round search per shortlisted problem: a bounded loop over our own cached search and
+# fetch (agents/loop.py), then entailment of the key claims and a Gate-1 re-check.
+verify:
+  max_steps: 12
+  max_searches: 15            # plan §4: ≤15 queries per problem
+  max_fetches: 10
+  max_observation_chars: 30000
+  page_preview_chars: 1500
+  max_rejections_in_row: 2
+  concurrency: 3
+  max_output_tokens: 3000
+  source_categories: [forum, complaints, jobs, social, association]
+  official_categories: [official]
+  top_signals: 8
+  key_claims_per_problem: 5
+  min_key_claims_supported: 2
+
+# Cheap-model check that a fact's excerpts really state it (plan §7.2).
+entailment:
+  batch_size: 10
+  max_quotes_per_claim: 3
+  max_output_tokens: 4000
+
+competitors:
+  max_competitors: 5          # plan §4
+  model_seed_names: 5
+  max_steps: 20
+  max_searches: 12
+  max_fetches: 20
+  max_observation_chars: 30000
+  page_preview_chars: 1500
+  max_rejections_in_row: 2
+  concurrency: 3
+  max_output_tokens: 3000
+  source_categories: [complaints, reviews, forum]
+  always_dimensions: [price_for_smb, turkish_localization, e_document_integration, setup_effort]
+  max_signal_dimensions: 6
+  max_facts_per_page: 12
+  fact_chars: 12000
+  entail_cells: true
+  seed_output_tokens: 2000
+  matrix_output_tokens: 8000

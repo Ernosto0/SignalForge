@@ -4,13 +4,15 @@
 - ``inference``: derived from ≥1 other claim (``derived_from``), so its chain can be shown.
 - ``hypothesis``: may have no support; always rendered as a hypothesis.
 
-``assumption`` claims carry dated numeric values and arrive with ``Claim.meta`` in M5. Every helper
-adds to the session and flushes, so the returned claim has its id. Stages own their claims by
+``assumption`` claims (M5) carry dated numeric values in ``Claim.meta``. Facts are
+entailment-checked (evidence/entailment.py) before they count or are cited. Every helper adds to
+the session and flushes, so the returned claim has its id. Stages own their claims by
 ``stage`` and replace them with :func:`delete_stage_claims`.
 """
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
@@ -35,19 +37,38 @@ def _add(session: Session, claim: Claim) -> Claim:
 
 
 def add_fact(
-    session: Session, run_id: int, statement: str, excerpt_ids: Iterable[int], *, stage: str
+    session: Session,
+    run_id: int,
+    statement: str,
+    excerpt_ids: Iterable[int],
+    *,
+    stage: str,
+    meta: dict[str, Any] | None = None,
 ) -> Claim:
     supports = sorted(set(excerpt_ids))
     if not supports:
         raise ValueError("a fact claim needs at least one verified excerpt")
     return _add(
         session,
-        Claim(run_id=run_id, kind="fact", statement=statement, supports=supports, stage=stage),
+        Claim(
+            run_id=run_id,
+            kind="fact",
+            statement=statement,
+            supports=supports,
+            stage=stage,
+            meta=meta or {},
+        ),
     )
 
 
 def add_inference(
-    session: Session, run_id: int, statement: str, claim_ids: Iterable[int], *, stage: str
+    session: Session,
+    run_id: int,
+    statement: str,
+    claim_ids: Iterable[int],
+    *,
+    stage: str,
+    meta: dict[str, Any] | None = None,
 ) -> Claim:
     derived = sorted(set(claim_ids))
     if not derived:
@@ -55,7 +76,12 @@ def add_inference(
     return _add(
         session,
         Claim(
-            run_id=run_id, kind="inference", statement=statement, derived_from=derived, stage=stage
+            run_id=run_id,
+            kind="inference",
+            statement=statement,
+            derived_from=derived,
+            stage=stage,
+            meta=meta or {},
         ),
     )
 

@@ -8,8 +8,10 @@ Submarkets: {{ r.run.submarkets|join(", ") }}
 
 > Intermediate report (milestone M3). Every quote below was found verbatim (or, where marked
 > *fuzzy*, near-verbatim) in the fetched source. Problem names and descriptions are model-written
-> summaries of the clustered signals; the quotes are the evidence. Nothing here has been verified
-> against competitors or buyers yet.
+> summaries of the clustered signals; the quotes are the evidence. Where a problem says "After
+> verification", a second round of targeted searches added evidence (or counter-evidence) and
+> its key claims were checked against their quotes. Nothing here has been checked against
+> competitors or buyers yet.
 
 ## Funnel
 
@@ -43,6 +45,10 @@ the list below for what was found.
 
 - Signal types: {% for k, v in p.signal_type_mix.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}
 
+{% if p.verification %}
+{% set v = p.verification %}
+- After verification: strength {{ "%.1f"|format(v.strength_before or 0) }} → **{{ "%.1f"|format(v.strength_after or 0) }}**/10 · sources {{ v.sources_before }} → {{ v.sources_after }} · {{ v.new_signals }} new signals · {{ v.counter_signals }} counter-evidence · key claims supported {{ v.key_claims_supported }}/{{ v.key_claims }}{{ " · " ~ v.excluded_signals ~ " signals no longer counted (entailment)" if v.excluded_signals }}
+{% endif %}
 
 {% for q in p.quotes %}
 > „{{ q.quote|replace("\n", " ") }}"
@@ -50,6 +56,16 @@ the list below for what was found.
 > [{{ q.domain }}]({{ q.url }}) · {{ q.category or "unlisted" }}, {{ q.tier }} tier{{ " · snippet only" if q.snippet_only }} · {{ q.published or "undated" }} · {{ q.type }}{{ " · first-hand" if q.first_hand }}{{ " · fuzzy match" if q.verified == "fuzzy" }}
 
 {% endfor %}
+{% if p.verification and p.verification.counter_quotes %}
+**Counter-evidence**
+
+{% for q in p.verification.counter_quotes %}
+> „{{ q.quote|replace("\n", " ") }}"
+> — *{{ q.translation|replace("\n", " ") }}*
+> [{{ q.domain }}]({{ q.url }}) · {{ q.category or "unlisted" }}, {{ q.tier }} tier · {{ q.published or "undated" }}
+
+{% endfor %}
+{% endif %}
 {% endfor %}
 ## Insufficient evidence
 

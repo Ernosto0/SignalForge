@@ -6,14 +6,16 @@
 whole text. Authors are reduced to salted hashes here; raw names never leave this module.
 :func:`write_signals` persists kept signals as Excerpt → Signal → fact Claim.
 
-Used by ``extract`` now and by ``verify`` / ``competitors`` / ``buyers`` (M4–M5) on the pages
-their loops fetch.
+Used by ``extract``, and by ``verify`` on the pages its loop fetches (with a problem context and a
+stance per signal, see pipeline/stages/verify.py). :func:`write_excerpt` also serves
+``competitors``, whose facts have no Signal.
 """
 
 import json
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -210,29 +212,61 @@ def extract_document(
     return DocumentSignals(kept, notes)
 
 
+def write_excerpt(
+    session: Session,
+    run_id: int,
+    document_id: int,
+    source: str,
+    match: QuoteMatch,
+    translation: str | None,
+    *,
+    stage: str,
+    author_hash: str | None = None,
+) -> Excerpt:
+    """Store one verified quote (the matched source span) and flush, so it has its id."""
+    excerpt = Excerpt(
+        run_id=run_id,
+        document_id=document_id,
+        quote=match.quote,
+        translation=translation,
+        char_start=match.char_start,
+        char_end=match.char_end,
+        source=source,
+        verified=match.verified,
+        author_hash=author_hash,
+        stage=stage,
+    )
+    session.add(excerpt)
+    session.flush()
+    return excerpt
+
+
 def write_signals(
-    session: Session, run_id: int, kept: list[KeptSignal], *, stage: str
+    session: Session,
+    run_id: int,
+    kept: list[KeptSignal],
+    *,
+    stage: str,
+    meta: Callable[[KeptSignal], dict[str, Any]] | None = None,
 ) -> list[tuple[int, int]]:
     """Store each kept signal as Excerpt → Signal → fact Claim; returns ``(signal id, claim id)``.
 
-    The fact's statement is the signal's statement, supported by exactly its one excerpt.
+    The fact's statement is the signal's statement, supported by exactly its one excerpt. ``meta``
+    adds stage-specific keys to ``Signal.meta`` (e.g. verify's ``counter``).
     """
     written = []
     for item in kept:
-        sig, match = item.signal, item.match
-        excerpt = Excerpt(
-            run_id=run_id,
-            document_id=item.document_id,
-            quote=match.quote,
-            translation=sig.translation,
-            char_start=match.char_start,
-            char_end=match.char_end,
-            source=item.source,
-            verified=match.verified,
+        sig = item.signal
+        excerpt = write_excerpt(
+            session,
+            run_id,
+            item.document_id,
+            item.source,
+            item.match,
+            sig.translation,
+            stage=stage,
             author_hash=item.author_hash,
         )
-        session.add(excerpt)
-        session.flush()
         signal = Signal(
             run_id=run_id,
             excerpt_id=excerpt.id,
@@ -241,7 +275,8 @@ def write_signals(
             workflow=sig.workflow,
             statement=sig.statement,
             first_hand=sig.first_hand,
-            meta={"submarket": item.submarket} if item.submarket else {},
+            meta=({"submarket": item.submarket} if item.submarket else {})
+            | (meta(item) if meta else {}),
         )
         session.add(signal)
         claim = add_fact(session, run_id, sig.statement, [excerpt.id], stage=stage)

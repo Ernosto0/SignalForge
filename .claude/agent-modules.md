@@ -48,7 +48,8 @@ class Agent:
 ```
 
 ```python
-# src/signalforge/agents/__init__.py
+# src/signalforge/agents/registry.py — re-exported lazily by agents/__init__.py, because stage
+# modules import shared agent code (agents/loop.py) and agent modules import the stages.
 from signalforge.agents.buyer_research import BUYER_RESEARCH
 from signalforge.agents.competitor_research import COMPETITOR_RESEARCH
 from signalforge.agents.evidence_validator import EVIDENCE_VALIDATOR
@@ -115,8 +116,8 @@ Milestones refer to [plan.md §13](plan.md#13-milestones-each-with-an-exit-crite
 | 1 | `planner.py` | `plan` (outside a run) | analysis | no | M1 | to build |
 | 2 | `source_discovery.py` | `query_gen`, `search`, `triage`, `fetch`, `dedupe` | fast | no | M1 (`query_gen`), M2 (rest) | ✅ stages built; add agent wrapper |
 | 3 | `problem_discovery.py` | `extract`, `cluster` | fast / analysis | no | M3 | to build |
-| 4 | `evidence_validator.py` | `shortlist` (Gate 1), `verify` | fast / analysis | **yes** (`verify`) | M3 (`shortlist`), M4 (`verify`) | to build |
-| 5 | `competitor_research.py` | `competitors` | analysis | **yes** | M4 | to build |
+| 4 | `evidence_validator.py` | `shortlist` (Gate 1), `verify` | fast / analysis | **yes** (`verify`) | M3 (`shortlist`), M4 (`verify`) | ✅ built (M4 live run pending) |
+| 5 | `competitor_research.py` | `competitors` | analysis | **yes** | M4 | ✅ built (M4 live run pending) |
 | 6 | `buyer_research.py` | `buyers` | analysis | no | M5 | to build |
 | 7 | `monetization.py` | `monetization` (Gate 2) | analysis + code | no | M5 | to build |
 | 8 | `opportunity_scorer.py` | `score` | analysis + code | no | M5 | to build |
@@ -132,8 +133,11 @@ Shared code these agents use (new files, under plan §12's layout):
 | `evidence/extraction.py` | extract, verify, competitors, buyers | `extract_document(ctx, doc, text, context) -> list[ExtractedSignal]` plus excerpt/signal/claim writing |
 | `evidence/independence.py` | shortlist, verify | source components from dedupe groups and author hashes |
 | `evidence/strength.py` | shortlist, verify, score | deterministic evidence strength (plan §8.1) |
-| `evidence/entailment.py` | verify, report | cheap-model entailment check of fact claims |
+| `evidence/entailment.py` | verify, competitors, report | cheap-model entailment check of fact claims: `entail_pending`, `failed`, `clear_entailment` |
 | `evidence/claims.py` | all analysis agents | helpers: `add_fact`, `add_inference`, `add_hypothesis`, `add_assumption`, `claim_table(run_id, ids)` |
+| `evidence/clusters.py` | competitors and later | read a cluster after verify: `cluster_signal_ids`, `current_strength`, `current_sources`; `pick_quotes` |
+| `evidence/gaps.py` | competitors, `signalforge gaps` | `check_gap_matrices`: the M4 exit rule over stored matrices |
+| `queries.py` | query_gen, agents/loop.py | `clean_query` and `Deduper` (moved out of the query_gen stage so the loop can import them without a cycle) |
 
 ### 0.5 The bounded tool loop (`agents/loop.py`)
 
@@ -146,44 +150,46 @@ quote verification (plan §4).
 ```python
 class LoopAction(BaseModel):
     action: Literal["search", "fetch", "finish"]
-    query: str | None = None     # search: Turkish query, ≤ 10 words, `site:` only from offered domains
-    url: str | None = None       # fetch: must be a URL already seen in this loop's search hits
+    query: str | None = None     # search: words only, market language, ≤ 10 words
+    site: str | None = None      # search: one offered registry domain, or null
+    hit_id: int | None = None    # fetch: the [h<id>] of a hit shown in this loop's history
     reason: str                  # English, ≤ 20 words; stored for debugging
-
-class LoopObservation(BaseModel):
-    step: int
-    action: LoopAction
-    hits: list[SearchHitView] = []   # id, url, title, snippet, domain tier
-    page: PageView | None = None     # url, title, first N chars, or the error
-
-@dataclass
-class LoopBudget:
-    max_steps: int
-    max_searches: int
-    max_fetches: int
-    max_observation_chars: int   # older observations are summarised to title+url when exceeded
 
 def run_loop(
     ctx: RunContext,
     *,
     stage: str,
     prompt: Prompt,
-    goal: str,                     # serialised task context (problem, what is needed)
-    budget: LoopBudget,
-    allowed_domains: list[str],    # for `site:` and as a soft preference
-    on_page: Callable[[Document, FetchedPage], None],  # agent-specific processing of each fetched page
+    goal: str,                         # serialised task context (problem, what is needed)
+    budget: LoopDefaults,              # max_steps / searches / fetches, max_observation_chars, …
+    allowed_domains: Sequence[str],    # registry domains the model may use as `site:`
+    known_urls: Collection[str],       # canonical URLs already in the run's evidence (rejected)
+    known_queries: Collection[str],    # query strings the run already searched (rejected)
+    on_page: Callable[[LoopPage], str],  # agent-specific processing; returns a note the model sees
 ) -> LoopTrace: ...
 ```
 
-Mechanical guards in `run_loop`:
-- reject a `fetch` URL that did not come from this loop's hits (no URLs from model memory),
-- reject a duplicate query (Turkish-aware near-dup, same check as `query_gen`) and a duplicate URL,
-- strip search operators except an allowed `site:`,
-- stop when any budget runs out, after 2 rejected actions in a row, or on `finish`,
-- write every search as a `Query` row (`intent` = `verify` or `competitor`, `meta.origin = "loop"`,
-  `meta.problem_id`), and every fetched page as a `Document` through `evidence/documents.store_page`.
+The model fetches by **hit id**, not URL, so a URL from model memory cannot even be expressed.
+Hits on `snippet_only` registry domains are "read" from their search snippet, without a download.
+Each observation shows a hit's domain, registry category and tier, and flags `already in
+evidence`, `off-site` (the `site:` hint was ignored by Google, see M1) and `snippet only`.
 
-`LoopTrace` (steps, actions, rejections, stop reason) is stored in the stage's metrics, per problem.
+Mechanical guards in `run_loop`:
+- reject a fetch of a hit id this loop has not shown, of a known URL, or of a URL already read,
+- clean the query with `queries.clean_query` (operators drop the query; `site:` only for an offered
+  domain) and reject Turkish-aware near-duplicates (`queries.Deduper`) and run-known queries,
+- stop on `finish`, when steps run out, when searches and fetches both run out, or after
+  `max_rejections_in_row` rejected actions in a row,
+- shorten the oldest observations to one line once the history exceeds `max_observation_chars`.
+
+**The loop never writes to the database.** It returns a `LoopTrace` (searches with hits, pages
+read, failed fetches, every action with its outcome, rejections, stop reason). Problems run in
+parallel, so the stage stores the traces afterwards with one writer: `store_searches` (in
+`agents/loop.py`) writes `Query` rows (`intent` = `verify` / `competitor`, `meta.origin = "loop"`,
+`meta.problem_ids`) with their `SearchResult`s, and documents go through
+`evidence/documents.store_document` (get-or-create by canonical URL, so two problems reading one
+page share one document). Only pages that yield evidence become documents. `LoopTrace.summary()`
+is stored per problem in the stage's metrics (and, for verify, in `verification.loop`).
 
 ---
 
@@ -317,8 +323,9 @@ cache), `independence_groups` (`near_dup` / `syndicated`).
   query, joined through `url_candidates.query_ids` → `documents` → `excerpts` → `signals`. Add
   `signalforge yield --run <id>` with a breakdown by `meta.signal_type`, `meta.source_hint` and
   `meta.origin`.
-- Move `page_document` / `snippet_document` from `pipeline/stages/fetch.py` into
-  `evidence/documents.py` (`store_page`), so the loop agents create documents the same way.
+- ✅ (M4) `page_document` / `snippet_document` moved from `pipeline/stages/fetch.py` into
+  `evidence/documents.py`, next to the loop helpers (`loop_page_document`,
+  `loop_snippet_document`, `store_document`), so the loop agents create documents the same way.
 
 **Done when.** This is the M2 exit: ≥150 documents for TR logistics, with the duplicate collapse
 rate and fetch success reported.
@@ -504,21 +511,22 @@ agents.
 
 ### 4.1 `shortlist` (Gate 1) — no LLM
 
-**Reads.** `problem_clusters`, `signals` → `excerpts` → `documents`, `independence_groups`.
+**As built (M3).** Independence and strength are computed when clusters are written (`cluster`
+stage, `cluster_stats`), from the `same_author` groups extract writes and the `near_dup` /
+`syndicated` groups dedupe writes; `shortlist` only reads them and decides. The decision is stored
+as `ProblemCluster.shortlisted` (bool) and `gate_trace` (JSON list of `{rule, value, threshold,
+passed}`), not as the `status` / `gate` columns first planned. A shortlist re-run also clears
+`verification` (verify must re-run after a new Gate-1 decision).
 
-**Writes.**
-- `independence_groups` with `rule="same_author"`. This stage deletes and rewrites only that rule;
-  `dedupe` owns `near_dup` / `syndicated`.
-- Per cluster: `independent_source_count`, `source_category_mix`, `evidence_strength`, and the new
-  columns `status` (`shortlisted` | `insufficient`) and `gate` (JSON: the values and which check
-  failed).
+**Reads.** `problem_clusters` (`evidence_strength`, `independent_source_count`).
 
-**Algorithm.**
+**Writes.** Per cluster: `shortlisted`, `gate_trace`; `verification = null`.
+
+**How the inputs are computed.**
 1. **Independence** (`evidence/independence.py`): union-find over document ids. Merge documents that
-   share a `near_dup` / `syndicated` group, documents whose excerpts share an `author_hash`, and
-   (`same_thread`) documents with the same canonical URL path apart from page or post parameters.
-   The number of independent sources for a cluster = the number of distinct components among its
-   signals' documents.
+   share a `near_dup` / `syndicated` group and documents whose excerpts share an `author_hash`
+   (`same_thread` grouping is not built). The number of independent sources for a cluster = the
+   number of distinct components among its signals' documents.
 2. **Evidence strength** (`evidence/strength.py`, plan §8.1). All components are in [0, 1]:
    ```
    count      = min(1, ln(1 + n_independent) / ln(1 + count_saturation))     # saturation 10
@@ -529,11 +537,12 @@ agents.
    directness = share of the cluster's signals with first_hand = true
    strength   = 10 × Σ weight_k × component_k
    ```
-   The weights live in `scoring/config.yaml` (§8). `strength_breakdown()` returns every component,
-   so reports and the `gate` JSON can explain the number.
-3. **Gate 1:** `status = shortlisted` when `evidence_strength ≥ min_strength` **and**
+   The weights live in the `strength` block of `config/defaults.yaml` (moves to
+   `scoring/config.yaml` in M5). `Strength.components` holds every component, stored in
+   `ProblemCluster.strength`, so reports can explain the number.
+3. **Gate 1:** shortlisted when `evidence_strength ≥ min_strength` **and**
    `n_independent ≥ min_independent_sources`. Among those that pass, keep the top `max_shortlisted`
-   by strength; any that pass but miss the cap are `insufficient` with `failed="cap"`. Every
+   by strength; any that pass but miss the cap get a failed `max_shortlisted` trace entry. Every
    cluster that fails is kept for the report's "insufficient evidence" list.
 
 **Config:**
@@ -549,58 +558,79 @@ strength distribution, duplicate collapse from author grouping.
 
 ### 4.2 `verify` — bounded loop + entailment
 
-**Reads.** Shortlisted clusters, their signals and fact claims, the plan, and the pack's source
-registry.
+**Reads.** Shortlisted clusters, their extract signals and fact claims, the cluster's inference
+claim, the plan, and the pack's source registry.
 
-**Writes.**
-- `queries` (`intent="verify"`) and `documents` (via `store_page`, origin `verify`).
-- New `excerpts` / `signals` / fact claims from the verify pages, extracted with
-  `evidence/extraction.extract_document` (the same prompt as `extract`) and appended to that
-  cluster's `signal_ids`.
-- Entailment verdicts on the cluster's key claims, and the recomputed independence / strength.
-- Counter-evidence is stored as signals too, with `meta.counter=true` (new `Signal.meta` JSON
-  column). Evidence that a problem is already solved is evidence.
+**Writes.** Everything below is replaced on a re-run; Gate 1's own columns are never touched.
+- `queries` (`intent="verify"`, via `store_searches`) and `documents` (origin `verify`,
+  `problem_id`) for pages that yielded evidence.
+- `excerpts` (`stage="verify"`) → `signals` (`meta = {origin: "verify", problem_id, counter}`) →
+  fact claims (`stage="verify"`). Counter-evidence is stored too (`counter: true`) but never
+  counts. Evidence that a problem is already solved is evidence.
+- `independence_groups` (`same_author`, `near_dup`, `syndicated`) that involve a verify document:
+  verify documents are compared with the shortlisted clusters' collected documents.
+- `Claim.entailment` (+ `meta.entailment_note`, `meta.entailment_by = "verify"`).
+- `ProblemCluster.verification` (JSON): `passed`, `signal_ids_added`, `counter_signal_ids`,
+  `excluded_signal_ids` (facts that failed entailment), `document_ids_added`,
+  `strength_before` / `strength_after` (full breakdowns), `key_claim_ids`, `key_claims`
+  (verdicts), `loop` (trace summary), `extraction` (quote counts).
+- `gate_trace` gets `verify_min_strength`, `verify_min_independent_sources` and
+  `verify_min_key_claims_supported` entries; `shortlisted = false` if any fails.
+
+The new signals are **not** appended to `signal_ids`, and `evidence_strength` keeps its Gate-1
+value. That keeps shortlist and verify idempotent (a shortlist re-run never sees verify's evidence).
+Later stages read a cluster through `evidence/clusters.py` (`cluster_signal_ids`,
+`current_strength`), and `cluster` reads only `stage="extract"` excerpts.
 
 **Model.**
 - Loop: `analysis` tier, prompt `prompts/verify_loop.md`, at most `max_steps` per problem.
-- Extraction: `fast` tier, `prompts/extract.md`.
+- Extraction: `fast` tier, `prompts/verify_extract.md`: the extract rules, with the problem
+  prepended to extract's input, and a `stance` per signal (`VerifySignal`: `supports` | `counter`
+  | `unrelated`; `unrelated` is dropped). It still runs through `extraction.extract_document`, so
+  quotes are verified exactly as in extract. The extract prompt and schema are untouched, so
+  extract's cached answers stay valid.
 - Entailment: `fast` tier, `prompts/entailment.md`.
 
-**Loop goal** (the `goal` passed to `run_loop`): the cluster's name, description, top signals
-(statement + submarket + source category), the source categories it is missing, and three tasks:
-1. Find more **independent first-hand** reports of the problem from sources the cluster doesn't
-   have yet (forums, job ads, tool reviews).
+**Loop goal** (JSON): market, industry, the problem, evidence so far (signal and source counts,
+category mix, the strongest signals picked one per independent source), the
+`verify.source_categories` it has no evidence from, and the tasks:
+1. Find more **independent first-hand** reports from the missing source categories.
 2. Look for **disconfirming** evidence: is it already solved by common tools, or is it only one
    vendor's marketing?
-3. If any signal is `regulatory`, fetch the **official** source (gib.gov.tr, resmigazete.gov.tr, …)
-   that states the obligation.
-
-`on_page` runs `extract_document` with the cluster as context and attaches the verified signals.
+3. If any signal is `regulatory`, find the **official** source that states the obligation (the
+   `verify.official_categories` domains are offered as `site:` only then).
 
 **Entailment** (`evidence/entailment.py`):
 ```python
 class EntailmentVerdict(BaseModel):
-    claim_id: int
+    item: int        # number of the claim within the batch (not a database id: cache-stable)
     verdict: Literal["supported", "partial", "not_supported", "contradicted"]
-    note: str   # English, ≤ 20 words
+    note: str        # English, ≤ 20 words
 
-def check(ctx, claims: list[ClaimWithExcerpts], *, stage: str) -> list[EntailmentVerdict]
-def entail_pending(ctx, claim_ids: list[int], *, stage: str) -> None  # checks those not yet checked
+def check(items: list[ClaimEvidence], ask, batch_size) -> tuple[dict[int, Judged], Counter]
+def entail_pending(ctx, claim_ids, *, stage: str) -> dict[str, int]  # facts without a verdict only
+def clear_entailment(session, run_id, stage)  # a stage forgets its own verdicts on re-run
+def failed(entailment: str | None) -> bool    # not_supported | contradicted
 ```
-- Each prompt item is the claim statement plus the original quotes and translations of its
-  supporting excerpts. Batches of `entailment.batch_size`.
-- Writes `Claim.entailment_checked=True` and the new `Claim.entailment` column.
+- Each item is the claim statement plus the original quotes and translations of its excerpts (up
+  to `max_quotes_per_claim`). Batches of `entailment.batch_size`; a claim the model skips stays
+  unchecked.
 - `not_supported` / `contradicted` facts are kept but excluded from evidence counts and citations.
   `partial` facts may be cited, with a flag.
-- Which claims count as **key**: the cluster's inference claim's top `key_claims_per_problem`
-  supporting facts, preferring first-hand, high-tier and distinct sources.
+- **Key claims**: the facts behind the cluster's signals, picked like the report's quotes:
+  first-hand, high tier, one per independent source first; top `key_claims_per_problem`.
+  Verify also checks every new supporting fact it adds.
 
-**Algorithm, per shortlisted cluster** (clusters run in parallel up to `concurrency`; steps within a
-loop run in order):
-1. Run the loop with `LoopBudget(max_steps, max_searches, max_fetches, max_observation_chars)`.
-2. Entailment-check the key claims.
-3. Recompute independence and strength. If the cluster now fails Gate 1 (for example because key
-   claims were not supported), set `status="insufficient"` with `failed="verify"`.
+**Algorithm.**
+1. Reset this stage's outputs (above), restore `shortlisted` from the Gate-1 trace entries.
+2. Per shortlisted cluster, in parallel (`concurrency`): run the loop; `on_page` extracts with the
+   problem as context and keeps the verified `supports` / `counter` signals in memory.
+3. Store all rounds with one writer, in cluster order: queries, documents (get-or-create),
+   signals and facts, independence groups.
+4. One `entail_pending` pass over all key claims and new supporting facts.
+5. Per cluster: recompute strength over extract + new supporting signals, without counter signals
+   and without signals whose fact failed entailment, with the new independence groups. Re-check
+   Gate 1 on the new values, plus `min_key_claims_supported` (capped at the number of key claims).
 
 **Config:**
 ```yaml
@@ -609,27 +639,43 @@ verify:
   max_searches: 15            # plan §4: ≤15 queries per problem
   max_fetches: 10
   max_observation_chars: 30000
-  key_claims_per_problem: 5
+  page_preview_chars: 1500
+  max_rejections_in_row: 2
   concurrency: 3
   max_output_tokens: 3000
+  source_categories: [forum, complaints, jobs, social, association]
+  official_categories: [official]
+  top_signals: 8
+  key_claims_per_problem: 5
+  min_key_claims_supported: 2
 entailment:
   batch_size: 10
+  max_quotes_per_claim: 3
   max_output_tokens: 4000
 ```
 
-**Metrics:** per problem: steps, searches, fetches, new signals, new independent sources, counter
-signals, strength before → after, entailment verdict mix, loop stop reason. Totals across problems.
+**Metrics:** totals (problems, passed, failed_verify, searches, fetches, new / counter / unrelated
+signals, quote counts, stop reasons, rejections, entailment verdicts, independence groups added)
+and `per_problem` (steps, searches, fetches, new and counter signals, excluded signals, sources and
+strength before → after, key claims supported, stop reason, passed).
 
-**Tests** (`tests/test_evidence_validator.py`):
-- Independence: same author on two domains → 1 source; a syndicated pair → 1 source.
-- Strength: hand-computed fixtures, including unknown dates and a snippet-only penalty.
-- Gate 1 outcomes, including the cap.
-- Loop guards: a fetch of a URL that isn't in the hits is rejected, a duplicate query is rejected,
-  budgets stop the loop.
-- An entailment `not_supported` verdict removes the claim from the counts.
+**Tests** (`tests/test_evidence_validator.py`, `tests/test_loop.py`, `tests/test_entailment.py`):
+- Gate 1 outcomes, including the cap; the landscape report, including the second round.
+- Verify end to end with fake providers: supporting, counter and unrelated signals; a
+  `not_supported` key claim stops counting; the Gate-1 re-check passes and fails with `verify_*`
+  trace entries; a re-run leaves the same rows and is served from the LLM cache; a shortlist
+  re-run restores Gate 1 and clears `verification`; two problems reading one page share one
+  document; same author across a collected and a verify document is one source; cluster never
+  reads verify signals.
+- Loop guards: unknown hit ids, known and repeated URLs, duplicate / operator / run-known queries,
+  `site:` only for offered domains, off-site flag, every budget, snippet-only reads, observation
+  shortening, replay from the cache.
+- Entailment: local numbering, skipped and bogus items, each fact checked once, a stage clears
+  only its own verdicts.
 
-**Done when.** Gate 1 decisions are explainable from the `gate` JSON alone, and the M4 exit holds:
-every gap-matrix cell is a cited fact or `unknown` (with `competitor_research`).
+**Done when.** Gate 1 decisions are explainable from `gate_trace` alone, verify's from
+`verification`, and the M4 exit holds: every gap-matrix cell is a cited fact or `unknown` (with
+`competitor_research`).
 
 ---
 
@@ -641,76 +687,107 @@ showing where they are weak. Competition is not automatically bad (plan §1).
 
 **Stages.** `competitors` (`pipeline/stages/competitors.py`).
 
-**Reads.** Shortlisted clusters and their signals. `tool_complaint` signals name vendors, which are
-the best seeds. Also the pack registry (`reviews`, `complaints` categories).
+**Reads.** Shortlisted clusters (after verify) and their counted signals
+(`evidence/clusters.cluster_signal_ids`, minus `verification.excluded_signal_ids`).
+`tool_complaint` quotes name vendors, which are the best seeds. Also the pack registry
+(`competitors.source_categories`: `complaints`, `reviews`, `forum` domains as `site:` hints).
 
-**Writes.**
-- `queries` (`intent="competitor"`), `documents` (origin `competitor`).
+**Writes.** Everything below is replaced on a re-run.
+- `queries` (`intent="competitor"`, via `store_searches`), `documents` (origin `competitor`;
+  a page the run already has is reused, not copied).
+- `excerpts` (`stage="competitors"`, no Signal) and fact claims (`stage="competitors"`,
+  `meta = {competitor_id, kind, page_kind}`).
 - `competitors`: name, url, segment, geo, and `pricing[]` entries of
   `{amount, currency, period, plan_name, observed_at, claim_id}`.
-- Fact claims per feature / price / weakness (`stage="competitors"`).
-- `gap_matrices`: `{dimensions, competitor_ids, cells: {dim: {competitor_id: {value, claim_id}}}}`,
-  where every cell is a claim or `{"value": "unknown"}`.
+- `gap_matrices` (now with `run_id`): `{dimensions: [{key, label, from_signal_ids, fixed}],
+  competitor_ids, cells: {dim: {competitor_id: {value, claim_id}}}, gaps: [{dimension,
+  claim_id}]}`, where every cell is a cited fact or `{"value": "unknown", "claim_id": null}`.
+- One inference claim per gap (`meta = {problem_id, dimension, gap: true}`).
 
 **Model.**
+- Seeds: `fast` tier, `prompts/competitor_seeds.md`.
 - Loop: `analysis` tier, `prompts/competitors_loop.md`.
 - Page facts: `fast` tier, `prompts/competitor_facts.md`.
 - Matrix: `analysis` tier, `prompts/gap_matrix.md`.
+- Entailment of the claims the matrix cites: `fast` tier, `prompts/entailment.md`.
 
-**Schemas** (`domain/competitors.py`):
+**Schemas** (`domain/competitors.py`). Numbers the model uses for products, claims and signals
+are local to one prompt input, never database ids, so cached answers survive renumbering.
 ```python
+class CompetitorSeeds(BaseModel):
+    from_signals: list[str]    # products named in the evidence quotes
+    suggested: list[str]       # the model's own suggestions: search seeds only
+
 class CompetitorFact(BaseModel):
     kind: Literal["feature", "price", "segment", "integration", "limitation", "review_complaint"]
     quote: str                 # verbatim from the page
+    translation: str
     statement: str             # English
-    amount: float | None = None      # price only
+    amount: float | None = None      # price only; must appear in the quote
     currency: str | None = None
     period: Literal["month", "year", "one_time", "per_user_month", "per_document", "unknown"] | None = None
     plan_name: str | None = None
 
 class CompetitorPage(BaseModel):
-    competitor_name: str | None    # null if the page is not about a product
-    product_url: str | None
+    competitor_name: str | None    # null if the page is not about one product
+    product_url: str | None        # the product's own website
+    page_kind: Literal["own_site", "review", "complaint", "comparison", "other"]
+    segment: str | None
+    geo: Literal["turkey", "international", "unknown"]
     facts: list[CompetitorFact]
 
 class GapDimensionDraft(BaseModel):
     key: str
     label: str                 # English, e.g. "e-İrsaliye integration", "Price for ≤10 users"
-    from_signal_ids: list[int] # the problem signals this dimension comes from
+    from_signals: list[int]    # signal numbers in the input
 
 class GapCell(BaseModel):
     dimension: str
-    competitor_id: int
+    competitor: int            # product number in the input
     value: Literal["yes", "partial", "no", "unknown"]
-    claim_id: int | None       # required unless value == "unknown"
+    claim: int | None          # claim number in the input; required unless value == "unknown"
 
 class GapMatrixDraft(BaseModel):
     dimensions: list[GapDimensionDraft]
     cells: list[GapCell]
 ```
 
-**Algorithm, per shortlisted cluster:**
-1. **Seeds:** vendor names from `tool_complaint` signals of the cluster, plus up to
-   `model_seed_names` names the model suggests. The suggested names are search seeds only; a
-   competitor is stored only after one of its own pages has been fetched.
-2. **Loop** (`run_loop`) with the goal: find up to `max_competitors` products serving this
-   workflow for this actor in Turkey (international products sold in Turkey count; `geo` records
-   this). For each, fetch the home page, pricing page, feature/docs page and one review/complaint
-   source.
-3. `on_page`: run `competitor_facts` and verify each quote with `evidence/quotes.py` (unverifiable
-   → dropped). Attach the page to the competitor by `competitor_name`, matched Turkish-aware
-   against the existing competitors of this problem. Write the facts as claims. Price facts also
-   go into `pricing[]` with `observed_at = document.fetched_at`. Prices are never converted here;
-   `monetization` converts with a dated rate.
-4. **Matrix:** derive 4–8 dimensions from the cluster's signals (what users say goes wrong), plus
-   the config dimensions that always apply (`always_dimensions`). Ask the model for cells, citing
-   **only** existing claim ids of that competitor.
-5. **Validate:** every non-`unknown` cell must cite a claim that is a fact, belongs to that
-   competitor, and has not failed entailment. Anything else becomes `unknown` (counted). Each
-   dimension must come from at least one signal or from `always_dimensions`.
-6. Add an inference claim per **gap** (a dimension where no competitor is `yes`, and at least one
-   competitor has a non-`unknown` cell), derived from those cell claims. `opportunity_scorer` reads
-   these for "competition gap".
+**Algorithm.**
+1. Reset this stage's outputs.
+2. Per shortlisted cluster, in parallel (`concurrency`):
+   - **Seeds:** one `competitor_seeds` call over the problem and its quotes (`tool_complaint`
+     first). Names are search seeds only.
+   - **Loop** (`run_loop`) with the goal: find up to `max_competitors` products serving this
+     workflow in this market; for each, read a page on its own website, its pricing page, a
+     feature page and one review / complaint page.
+   - `on_page`: one `competitor_facts` call over the first `fact_chars` of the page; each fact's
+     quote is verified with `evidence/quotes.py` (unverifiable → dropped), and a price is kept
+     only if its amount appears in the matched quote (`numbers_in` reads Turkish `1.250,50` and
+     English `1,250.50`). Results stay in memory.
+3. **Competitors** (`resolve`): a product becomes a competitor only through a page on its **own**
+   website, i.e. the page's domain matches the `product_url` the page names (`same_site`). Other
+   pages (reviews, complaints) attach by Turkish-aware name match (`same_product`: equal, or one
+   name is the other plus more words). Facts about a product never confirmed on its own site are
+   dropped and counted (`unconfirmed_pages`), so a name from model memory is never stored.
+4. **Store** all problems with one writer: queries, documents (get-or-create), competitors,
+   excerpts and fact claims, prices with `observed_at = document.fetched_at`. Prices are never
+   converted here; `monetization` converts with a dated rate.
+5. **Matrix** (in parallel): one `gap_matrix` call per problem with competitors, given the
+   problem, its signals, the `always_dimensions` and each product's claims, all numbered locally.
+6. If `entail_cells`, one `entail_pending` pass over the claims non-`unknown` cells cite.
+7. **Validate** (`validate_matrix`):
+   - Dimensions: fixed ones are always kept (added if the model left one out); others need at
+     least one valid signal number, and at most `max_signal_dimensions` are kept.
+   - Cells: a non-`unknown` cell must cite a claim of **that** product that has not failed
+     entailment, or it is demoted to `unknown` (counted by reason). Missing cells are `unknown`.
+8. **Gaps:** a dimension where no product is `yes` and at least one cell is known becomes an
+   inference claim derived from those cells' claims. `opportunity_scorer` reads these for
+   "competition gap".
+
+**Exit check.** `evidence/gaps.check_gap_matrices(session, run_id)` re-reads the stored matrices:
+every (dimension, competitor) has a cell, and every non-`unknown` cell cites a fact of the same run
+and the same competitor whose excerpts exist and which has not failed entailment.
+`signalforge gaps <run>` prints the matrices and exits 1 on any violation.
 
 **Config:**
 ```yaml
@@ -721,21 +798,38 @@ competitors:
   max_searches: 12
   max_fetches: 20
   max_observation_chars: 30000
-  always_dimensions: [price_for_smb, turkish_localization, e_document_integration, setup_effort]
+  page_preview_chars: 1500
+  max_rejections_in_row: 2
   concurrency: 3
-  max_output_tokens: 4000
+  max_output_tokens: 3000
+  source_categories: [complaints, reviews, forum]
+  always_dimensions: [price_for_smb, turkish_localization, e_document_integration, setup_effort]
+  max_signal_dimensions: 6
+  max_facts_per_page: 12
+  fact_chars: 12000
+  entail_cells: true
+  seed_output_tokens: 2000
+  matrix_output_tokens: 8000
 ```
 
-**Metrics:** per problem: competitors found, pages fetched, facts proposed / verified, price
-observations, matrix cells by value, cells demoted to `unknown`, gaps found.
+**Metrics:** totals (competitors, pages read, searches, facts proposed / verified / unverified,
+prices, prices dropped for an amount not in the quote, cells by value, demoted cells, gaps, stop
+reasons, rejections, entailment) and `per_problem` (seeds, pages, competitors, facts, prices,
+cells, demoted, gaps, unconfirmed pages).
 
 **Tests** (`tests/test_competitor_research.py`):
-- A competitor named only by the model is never stored without a fetched page.
-- A cell citing a claim from another competitor is demoted to `unknown`.
-- A price keeps its currency, period and observed date.
+- A product seen only on a review site, or only suggested by the model, is never stored.
+- A complaint page attaches to its product by name.
+- A price keeps its currency, period and observed date; a price whose amount is not in the quote
+  and an unverifiable quote are dropped.
+- A cell citing another product's claim, a missing claim or a failed-entailment claim is demoted;
+  a dimension without valid signals is dropped; fixed dimensions are always present.
 - A gap is derived only when evidence exists, not from all-`unknown` columns.
+- `check_gap_matrices` passes on stage output and catches seeded bad cells; a re-run is
+  idempotent and served from the LLM cache.
 
-**Done when.** This is the M4 exit: every gap-matrix cell is a cited fact or `unknown`.
+**Done when.** This is the M4 exit: every gap-matrix cell is a cited fact or `unknown`
+(`signalforge gaps <run>` exits 0 on a live TR logistics run).
 
 ---
 
@@ -1211,13 +1305,18 @@ seeded uncited or hallucinated bullets in tests.
 
 | Table | Change | Needed by |
 |---|---|---|
-| `problem_clusters` | `status` String(16) (`shortlisted` / `insufficient`), `gate` JSONB | evidence_validator (M3) |
-| `signals` | `meta` JSONB default `{}` (`counter`, `origin`, `submarket`) | problem_discovery, evidence_validator (M3) |
-| `claims` | `entailment` String(16) nullable, `meta` JSONB default `{}`, index on `(run_id, kind)` | evidence_validator (M4), monetization (M5) |
+| `problem_clusters` | ✅ M3 (`c4d8e1f2a7b9`): `shortlisted` Bool, `gate_trace` JSONB, `strength` JSONB, `signal_type_mix`, `rank`; `claim_id` (`d5e9a2b3c4f6`) | evidence_validator (M3) |
+| `problem_clusters` | ✅ M4 (`e6f1a3b5c7d9`): `verification` JSONB nullable | evidence_validator (M4) |
+| `signals` | ✅ M3: `meta` JSONB default `{}` (`submarket`; verify adds `origin`, `problem_id`, `counter`) | problem_discovery, evidence_validator |
+| `claims` | ✅ M4: `entailment` String(16) nullable, `meta` JSONB default `{}`, index on `(run_id, kind)` | evidence_validator (M4), monetization (M5) |
+| `documents` | ✅ M4: `origin` String(16) default `collect` (`collect` / `verify` / `competitor` / `buyers`), `problem_id` nullable FK (SET NULL) | loop agents (M4) |
+| `excerpts` | ✅ M4: `stage` String(32) default `extract` (each stage deletes only its own; cluster reads only `extract`) | loop agents (M4) |
+| `gap_matrices` | ✅ M4: `run_id` FK (run-scoped deletes and the exit check) | competitor_research (M4) |
 | `opportunities` | `status` String(16), `knockouts` JSONB, `accessibility` JSONB, `market_breadth` JSONB | buyer_research, monetization (M5) |
 | `score_cards` | `experiment` JSONB | opportunity_scorer (M5) |
-| `documents` | `origin` String(16) default `collect` (`collect` / `verify` / `competitor` / `buyers`), `problem_id` nullable FK | loop agents (M4) |
-| `excerpts` | — (snippet text for snippet-only documents comes from `url_candidates.snippet`) | — |
+
+Collection stages (`extract`, `dedupe`) read only `documents.origin = 'collect'`, and `search`
+searches only collection intents, so loop rows never leak into a collection re-run.
 
 The pack also needs `economics.yaml` entries for `usd_try` and at least one wage reference per
 target role, each with `as_of` and `source_url` (M5).
@@ -1237,7 +1336,7 @@ is merged. Each agent's "Done when" line above repeats the exit it is responsibl
 | **M1** Plan & queries | [planner](#1-agentsplannerpy--planner): `plan` (to do) · [source_discovery](#2-agentssource_discoverypy--source-discovery): `query_gen` ✅ | — | curate `sources.yaml` | source_discovery (query review) |
 | **M2** Collection | [source_discovery](#2-agentssource_discoverypy--source-discovery): `search`, `triage`, `fetch`, `dedupe` (built) · agent framework | `agents/base.py`, `agents/__init__.py`, `run --agent`, `signalforge agents`, `evidence/documents.py` | none | source_discovery |
 | **M3** Signals & landscape | [problem_discovery](#3-agentsproblem_discoverypy--problem-discovery): `extract`, `cluster` · [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 1: `shortlist` (Gate 1) · landscape report | `evidence/quotes.py`, `extraction.py`, `claims.py`, `independence.py`, `strength.py`; `scoring/config.yaml` (strength block only) | `problem_clusters.status/gate`, `signals.meta` | problem_discovery (quote pass rate, labelled signals) + a founder reading the landscape report |
-| **M4** Verification & competitors | [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 2: `verify` + entailment · [competitor_research](#5-agentscompetitor_researchpy--competitor-research): `competitors` | `agents/loop.py`, `evidence/entailment.py` | `claims.entailment/meta`, `documents.origin/problem_id` | competitor_research (gap-matrix cells) |
+| **M4** Verification & competitors | [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 2: `verify` + entailment · [competitor_research](#5-agentscompetitor_researchpy--competitor-research): `competitors` | `agents/loop.py`, `evidence/entailment.py`, `evidence/documents.py`, `evidence/clusters.py`, `evidence/gaps.py`, `queries.py`, `signalforge gaps` | `claims.entailment/meta`, `documents.origin/problem_id`, `excerpts.stage`, `problem_clusters.verification`, `gap_matrices.run_id` | competitor_research (gap-matrix cells) |
 | **M5** Commercial & scoring | [buyer_research](#6-agentsbuyer_researchpy--buyer-research): `buyers` · [monetization](#7-agentsmonetizationpy--monetization): `monetization` (Gate 2) · [opportunity_scorer](#8-agentsopportunity_scorerpy--opportunity-scorer): `score` | `scoring/economics.py`, `rubric.yaml`, `scorer.py`, `categories.py`, `experiments.py`/`.yaml` | `opportunities.*` columns, `score_cards.experiment`; pack `economics.yaml` (`usd_try`, wage references) | opportunity_scorer (explainable ScoreCards) |
 | **M6** Final report | [report_writer](#9-agentsreport_writerpy--report-writer): `report` | `reporting/schema.py`, `validator.py`, `render.py`, templates | none | report_writer (citation validator) |
 | **M7** Multi-market evaluation | no new agents: tune each agent's config block and prompts on fixtures | `evals/` (fixtures, labelling, metrics reports), `signalforge ledger --by agent` | more market packs / industries as needed | all agents |
@@ -1262,7 +1361,11 @@ showing in `signalforge status`.
   6. **Stop until a founder finds the landscape report useful** (plan M3). Measure query yield
      here and feed it back into `query_gen.pain_signal_mix` (§2).
 - **M4:** `agents/loop.py` and `entailment.py` first, since both loop agents need them. Then
-  `verify`, then `competitors`.
+  `verify`, then `competitors`. ✅ Code and fake-provider tests done (2026-10-06). Still open:
+  a live run on TR logistics once the M3 founder check has passed (`run --agent
+  evidence_validator`, then `--agent competitor_research`, then `signalforge gaps`), and
+  curating B2B software review / comparison domains into `sources.yaml` (category `reviews`)
+  from live SERP probes.
 - **M5:** settle the `commercial` split ([plan.md §14](plan.md#14-open-decisions-defaults-chosen-change-here-if-needed))
   first. Then the pack economics entries, `buyer_research`, `monetization`, and finally
   `opportunity_scorer`.

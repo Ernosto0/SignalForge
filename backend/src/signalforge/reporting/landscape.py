@@ -26,6 +26,7 @@ from signalforge.db.models import (
     ResearchRun,
     Signal,
 )
+from signalforge.evidence.clusters import pick_quotes
 from signalforge.evidence.independence import source_units
 from signalforge.pipeline.runner import latest_stage_runs
 from signalforge.pipeline.stages.shortlist import failed_rules
@@ -46,45 +47,17 @@ FUNNEL = [
     ("Verified signals", "extract", "signals"),
     ("Problem clusters", "cluster", "clusters"),
     ("Shortlisted (Gate 1)", "shortlist", "shortlisted"),
+    ("Still shortlisted after verify", "verify", "passed"),
 ]
 
 RULE_TEXT = {
     "min_strength": "evidence strength below the bar",
     "min_independent_sources": "too few independent sources",
     "max_shortlisted": "passed, but outside the shortlist cap",
+    "verify_min_strength": "evidence strength below the bar after verification",
+    "verify_min_independent_sources": "too few independent sources after verification",
+    "verify_min_key_claims_supported": "key claims not supported by their quotes (entailment)",
 }
-
-
-def _quote_rank(q: dict[str, Any], tiers: dict[str, float]) -> tuple[Any, ...]:
-    """Best evidence first: first-hand, source quality, exact match, full text, newest."""
-    return (
-        not q["first_hand"],
-        -tiers.get(q["tier"] or "", 0.0),
-        q["verified"] != "exact",
-        q["snippet_only"],
-        -(datetime.fromisoformat(q["published"]).timestamp() if q["published"] else 0.0),
-        q["signal_id"],
-    )
-
-
-def pick_quotes(
-    quotes: list[dict[str, Any]], units: dict[int, int], tiers: dict[str, float], n: int
-) -> list[dict[str, Any]]:
-    """Up to ``n`` strongest quotes, one per independent source while sources last."""
-    ranked = sorted(quotes, key=lambda q: _quote_rank(q, tiers))
-    chosen: list[dict[str, Any]] = []
-    seen_units: set[int] = set()
-    for q in ranked:
-        unit = units.get(q["document_id"], q["document_id"])
-        if unit not in seen_units:
-            seen_units.add(unit)
-            chosen.append(q)
-    for q in ranked:  # fewer sources than slots: fill with further quotes
-        if len(chosen) >= n:
-            break
-        if q not in chosen:
-            chosen.append(q)
-    return chosen[:n]
 
 
 def build_landscape(db: sessionmaker[Session], run_id: int, defaults: Defaults) -> dict[str, Any]:
@@ -134,8 +107,31 @@ def build_landscape(db: sessionmaker[Session], run_id: int, defaults: Defaults) 
             "published": doc.published_at.date().isoformat() if doc.published_at else None,
         }
 
+    def verified(c: ProblemCluster) -> dict[str, Any] | None:
+        v = c.verification
+        if not v:
+            return None
+        before, after = v.get("strength_before") or {}, v.get("strength_after") or {}
+        keys = list((v.get("key_claims") or {}).values())
+        counter = [quotes[i] for i in v.get("counter_signal_ids", []) if i in quotes]
+        return {
+            "passed": v.get("passed"),
+            "strength_before": before.get("score"),
+            "strength_after": after.get("score"),
+            "sources_before": before.get("independent_sources"),
+            "sources_after": after.get("independent_sources"),
+            "new_signals": len(v.get("signal_ids_added", [])),
+            "counter_signals": len(counter),
+            "excluded_signals": len(v.get("excluded_signal_ids", [])),
+            "key_claims_supported": sum(k in ("supported", "partial") for k in keys),
+            "key_claims": len(keys),
+            "loop_stop": (v.get("loop") or {}).get("stop_reason"),
+            "counter_quotes": counter[:QUOTES_PER_PROBLEM],
+        }
+
     def problem(c: ProblemCluster) -> dict[str, Any]:
-        members = [quotes[i] for i in c.signal_ids if i in quotes]
+        added = (c.verification or {}).get("signal_ids_added", [])
+        members = [quotes[i] for i in [*c.signal_ids, *added] if i in quotes]
         first_hand = sum(q["first_hand"] for q in members)
         return {
             "id": c.id,
@@ -150,6 +146,7 @@ def build_landscape(db: sessionmaker[Session], run_id: int, defaults: Defaults) 
             "signal_type_mix": c.signal_type_mix,
             "first_hand_share": round(first_hand / len(members), 2) if members else None,
             "failed_rules": [RULE_TEXT.get(r, r) for r in failed_rules(c.gate_trace or [])],
+            "verification": verified(c),
             "quotes": pick_quotes(
                 members, units, defaults.strength.tier_weights, QUOTES_PER_PROBLEM
             ),

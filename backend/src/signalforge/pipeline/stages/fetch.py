@@ -11,7 +11,7 @@ from collections import Counter
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from statistics import median
 from typing import Any
 
@@ -19,14 +19,12 @@ from sqlalchemy import delete, select, update
 
 from signalforge.config import FetchStageDefaults
 from signalforge.db.models import Document, UrlCandidate
-from signalforge.evidence.dedup import text_hash
+from signalforge.evidence.documents import page_document, snippet_document
 from signalforge.packs import MarketPack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult
 from signalforge.providers.cache import cache_key
 from signalforge.providers.fetch import FetchedPage, FetchStatus
-from signalforge.providers.urls import canonicalize_url, domain_of
-from signalforge.text import guess_language
 
 SNIPPET_ONLY = "snippet_only"
 DUPLICATE_URL = "duplicate_url"  # redirected to a page another candidate already produced
@@ -44,50 +42,6 @@ class Outcome:
 class Fetched:
     outcomes: list[Outcome]
     metrics: dict[str, Any] = field(default_factory=dict)
-
-
-def parse_date(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.combine(date.fromisoformat(value[:10]), datetime.min.time(), tzinfo=UTC)
-    except ValueError:
-        return None
-
-
-def snippet_document(c: UrlCandidate, now: datetime) -> Document:
-    return Document(
-        url=c.url,
-        canonical_url=c.canonical_url,
-        domain=c.domain,
-        title=c.title,
-        source_category=c.source_category,
-        quality_tier=c.quality_tier,
-        snippet_only=True,
-        fetched_at=now,
-        text_hash=text_hash(c.snippet) if c.snippet else None,
-        lang=guess_language(c.snippet or ""),
-    )
-
-
-def page_document(c: UrlCandidate, page: FetchedPage, pack: MarketPack) -> Document:
-    final = page.final_url or c.url
-    domain = domain_of(final)
-    source = pack.source_for(domain) if domain != c.domain else None
-    text = page.text or ""
-    return Document(
-        url=final,
-        canonical_url=canonicalize_url(final),
-        domain=domain,
-        title=page.title or c.title,
-        source_category=source.category if source else c.source_category,
-        quality_tier=source.tier if source else c.quality_tier,
-        snippet_only=False,
-        published_at=parse_date(page.published_at),
-        fetched_at=page.fetched_at,
-        text_hash=text_hash(text),
-        lang=guess_language(text) or page.html_lang,
-    )
 
 
 def collect(

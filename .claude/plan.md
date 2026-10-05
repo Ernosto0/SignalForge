@@ -392,9 +392,10 @@ backend/
                          # (later) plan / run / label / fixture
     config.py            # pydantic-settings (root .env) + typed config/defaults.yaml
     text.py              # Turkish-aware normalisation (I/ı/İ/i casefold) for dedupe + quote matching
+    queries.py           # search-query cleanup + Turkish near-dup check (query_gen, agents/loop.py)
     packs.py             # market pack loader + source registry lookup
     api/                 # FastAPI app + routes (health exists)
-    agents/              # base.py, loop.py, one module per agent (agent-modules.md); STAGES derives from AGENTS
+    agents/              # base.py, loop.py, registry.py (AGENTS → STAGES), one module per agent
     pipeline/
       runner.py          # ordering, resume, --from, budget enforcement
       context.py         # RunContext: db, llm, search, fetcher, pack, budget, cache mode
@@ -403,7 +404,8 @@ backend/
     domain/              # Pydantic models (stage I/O, plan.yaml schema, report.json schema)
     db/                  # base.py, session.py, migrations/ (Alembic)
     providers/           # llm.py, fetch.py, search/{base,serpapi}.py, cache.py, urls.py
-    evidence/            # quotes.py, dedup.py, independence.py, strength.py, entailment.py
+    evidence/            # quotes, dedup, independence, strength, entailment, claims, extraction,
+                         # documents, clusters (post-verify reads), gaps (M4 exit check)
     scoring/             # rubric.yaml, config.yaml, scorer.py, categories.py, experiments.py
     prompts/             # <stage>.md, versioned
     reporting/           # templates, citation validator, renderers
@@ -456,6 +458,11 @@ B2B pain (tune until met). **This is the first test of the core thesis — don't
 reading the landscape report finds it useful.**
 
 **M4 — Verification & competitors.** Bounded loops, entailment checks, competitor facts, gap matrix.
+*Progress 2026-10-06:* code done and tested with fake providers (`verify`, `competitors`, the shared
+loop, entailment, `signalforge gaps` as the exit check; migration `e6f1a3b5c7d9`). Verify keeps its
+second round in `ProblemCluster.verification` and never edits Gate 1's columns; loop documents carry
+`origin`, and excerpts carry `stage`, so collection re-runs ignore them. Open: a live TR logistics
+run once the M3 founder check has passed, and adding B2B software review sites to `sources.yaml`.
 *Agents:* [evidence_validator](agent-modules.md#4-agentsevidence_validatorpy--evidence-validator) part 2
 (`verify`, entailment) · [competitor_research](agent-modules.md#5-agentscompetitor_researchpy--competitor-research)
 (`competitors`). Both use the shared loop in `agents/loop.py`.

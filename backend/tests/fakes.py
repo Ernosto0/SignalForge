@@ -7,9 +7,12 @@ import httpx
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, sessionmaker
 
+from signalforge.agents.loop import LoopAction
 from signalforge.config import BACKEND_DIR, CacheMode, Settings, get_defaults
 from signalforge.domain.collection import TriageBatch, TriageJudgment
+from signalforge.domain.competitors import CompetitorSeeds
 from signalforge.domain.plan import load_plan
+from signalforge.evidence.entailment import EntailmentBatch, EntailmentVerdict
 from signalforge.packs import load_pack
 from signalforge.pipeline.context import RunContext
 from signalforge.providers.cache import CacheStore
@@ -78,12 +81,24 @@ class FakeSearch:
 Handler = Callable[[str], BaseModel]
 
 
+def support_all(prompt_input: str) -> EntailmentBatch:
+    """Entailment answer: every numbered claim is supported."""
+    items = json.loads(prompt_input.split("# Claims\n", 1)[1])
+    return EntailmentBatch(
+        verdicts=[EntailmentVerdict(item=i["item"], verdict="supported", note="ok") for i in items]
+    )
+
+
 class FakeLLM:
-    """LLM client answering by output schema; triage is judged by :class:`FakeJudge`."""
+    """LLM client answering by output schema. Defaults: triage is judged by :class:`FakeJudge`,
+    research loops finish at once, entailment supports every claim, no competitor seeds."""
 
     def __init__(self, handlers: dict[type[BaseModel], Handler] | None = None) -> None:
         self.handlers: dict[type[BaseModel], Handler] = {
             TriageBatch: lambda prompt_input: FakeJudge()(prompt_input)[0],
+            LoopAction: lambda _: LoopAction(action="finish", reason="done"),
+            EntailmentBatch: support_all,
+            CompetitorSeeds: lambda _: CompetitorSeeds(from_signals=[], suggested=[]),
             **(handlers or {}),
         }
         self.calls: list[type[BaseModel]] = []

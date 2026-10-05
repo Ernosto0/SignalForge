@@ -145,7 +145,9 @@ def load_sources(ctx: RunContext) -> tuple[list[SourceText], dict[str, int]]:
     """The documents to read (one per duplicate group) with their text, plus skip counts."""
     with ctx.db() as session:
         documents = session.scalars(
-            select(Document).where(Document.run_id == ctx.run_id).order_by(Document.id)
+            select(Document)
+            .where(Document.run_id == ctx.run_id, Document.origin == "collect")
+            .order_by(Document.id)
         ).all()
         candidates: dict[int, _CandidateInfo] = {}
         for c in session.scalars(

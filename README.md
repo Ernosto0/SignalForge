@@ -65,6 +65,9 @@ signalforge signals 3 --out signals.csv                # signals with quotes, so
 signalforge label signals 3 --n 50                     # y/n: real first-hand B2B pain? (M3 exit: ≥ 70% y)
 signalforge label clusters 3                           # y/n: one coherent, distinct problem?
 signalforge labels 3                                   # label precision by signal type and source
+signalforge run --run 3 --agent evidence_validator     # Gate 1, then verify: 2nd-round search + entailment
+signalforge run --run 3 --agent competitor_research    # competitors, cited facts/prices, gap matrices
+signalforge gaps 3                                     # gap matrices; exits 1 if a cell is uncited (M4 exit)
 ```
 
 Search results, pages and LLM responses are cached in Postgres (`cache_entries`). The cache mode

@@ -46,6 +46,7 @@
   }
   blockquote { margin: 12px 0; padding: 10px 12px; background: var(--quote); border-radius: 6px; }
   blockquote p { margin: 0; }
+  blockquote.counter { border-left: 3px solid var(--warn); }
   blockquote .tr { color: var(--muted); font-style: italic; margin-top: 4px; }
   blockquote .src { font-size: 0.8rem; color: var(--muted); margin-top: 6px; overflow-wrap: anywhere; }
   a { color: var(--accent); }
@@ -107,6 +108,13 @@
       {% for k, v in p.source_category_mix.items() %}<span>{{ k }} × {{ v }}</span>{% endfor %}
       {% for k, v in p.signal_type_mix.items() %}<span>{{ k }} × {{ v }}</span>{% endfor %}
     </div>
+    {% if p.verification %}
+    {% set v = p.verification %}
+    <p class="muted">After verification: strength {{ "%.1f"|format(v.strength_before or 0) }} →
+      <b>{{ "%.1f"|format(v.strength_after or 0) }}</b>/10 · sources {{ v.sources_before }} →
+      {{ v.sources_after }} · {{ v.new_signals }} new signals · {{ v.counter_signals }}
+      counter-evidence · key claims supported {{ v.key_claims_supported }}/{{ v.key_claims }}</p>
+    {% endif %}
     {% for q in p.quotes %}
     <blockquote>
       <p lang="tr">„{{ q.quote }}"</p>
@@ -119,6 +127,17 @@
       </div>
     </blockquote>
     {% endfor %}
+    {% if p.verification and p.verification.counter_quotes %}
+    <h4>Counter-evidence</h4>
+    {% for q in p.verification.counter_quotes %}
+    <blockquote class="counter">
+      <p lang="tr">„{{ q.quote }}"</p>
+      <p class="tr">{{ q.translation }}</p>
+      <div class="src"><a href="{{ q.url }}" rel="noopener noreferrer">{{ q.domain }}</a> ·
+        {{ q.category or "unlisted" }}, {{ q.tier }} tier · {{ q.published or "undated" }}</div>
+    </blockquote>
+    {% endfor %}
+    {% endif %}
   </section>
   {% endfor %}
 

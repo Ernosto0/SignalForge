@@ -157,6 +157,52 @@ class ShortlistDefaults(BaseModel):
     max_shortlisted: int
 
 
+class LoopDefaults(BaseModel):
+    """Caps of one bounded search/fetch loop (agents/loop.py), per problem."""
+
+    max_steps: int
+    max_searches: int
+    max_fetches: int
+    # Older observations are shortened to title + URL once the history exceeds this.
+    max_observation_chars: int
+    # Characters of a fetched page shown to the loop model (extraction reads the whole page).
+    page_preview_chars: int
+    max_rejections_in_row: int
+    concurrency: int  # problems processed in parallel
+    max_output_tokens: int
+
+
+class VerifyDefaults(LoopDefaults):
+    # Registry categories whose domains are offered as `site:` hints; `official` is offered only
+    # for problems with a regulatory signal.
+    source_categories: list[str]
+    official_categories: list[str]
+    top_signals: int  # signals shown in the loop goal
+    key_claims_per_problem: int
+    # Re-gate after verify: at least this many key claims must pass entailment.
+    min_key_claims_supported: int
+
+
+class EntailmentDefaults(BaseModel):
+    batch_size: int
+    max_quotes_per_claim: int
+    max_output_tokens: int
+
+
+class CompetitorsDefaults(LoopDefaults):
+    max_competitors: int
+    model_seed_names: int
+    source_categories: list[str]
+    always_dimensions: list[str]
+    max_signal_dimensions: int
+    max_facts_per_page: int
+    fact_chars: int  # page text read by the facts call
+    # Run entailment on the claims the gap matrix cites before validating the cells.
+    entail_cells: bool
+    seed_output_tokens: int
+    matrix_output_tokens: int
+
+
 class Defaults(BaseModel):
     """Typed view of config/defaults.yaml."""
 
@@ -173,6 +219,9 @@ class Defaults(BaseModel):
     cluster: ClusterDefaults
     strength: StrengthDefaults
     shortlist: ShortlistDefaults
+    verify: VerifyDefaults
+    entailment: EntailmentDefaults
+    competitors: CompetitorsDefaults
 
 
 @lru_cache

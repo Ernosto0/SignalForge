@@ -22,8 +22,10 @@ from signalforge import __version__
 from signalforge.agents import AGENTS, STAGES, get_agent
 from signalforge.config import CacheMode, get_defaults
 from signalforge.db.models import (
+    Competitor,
     Document,
     Excerpt,
+    GapMatrix,
     IndependenceGroup,
     Label,
     LLMCall,
@@ -37,6 +39,7 @@ from signalforge.db.models import (
 from signalforge.db.session import get_session_factory
 from signalforge.domain.diagnostics import PainCheck
 from signalforge.domain.plan import load_plan
+from signalforge.evidence.gaps import check_gap_matrices
 from signalforge.packs import load_pack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import create_run, latest_stage_runs, run_pipeline, run_stage
@@ -303,6 +306,10 @@ def purge_cache(
         typer.echo(f"deleted {rc.cache.purge(namespace)} entries")
 
 
+def _counts_text(counts: dict[str, int], keys: tuple[str, ...]) -> str:
+    return ", ".join(f"{k} {counts.get(k, 0)}" for k in keys)
+
+
 def _stage_line(row: StageRun) -> str:
     """One-line summary of a stage's headline metrics."""
     m = row.metrics or {}
@@ -342,6 +349,18 @@ def _stage_line(row: StageRun) -> str:
             f"{m['shortlisted']} of {m['clusters']} clusters shortlisted  ·  failed: "
             + (", ".join(f"{k} {v}" for k, v in m["failed_by_rule"].items()) or "-")
         ),
+        "verify": lambda: (
+            f"{m['passed']} of {m['problems']} problems still shortlisted  ·  "
+            f"{m['searches']} searches, {m['fetches']} fetches  ·  {m['new_signals']} new "
+            f"signals, {m['counter_signals']} counter  ·  entailment "
+            + _counts_text(m["entailment"], ("supported", "partial", "not_supported"))
+        ),
+        "competitors": lambda: (
+            f"{m['competitors']} competitors for {m['problems']} problems  ·  "
+            f"{m['facts_verified']} facts ({m['prices']} prices)  ·  cells "
+            + _counts_text(m["cells"], ("yes", "partial", "no", "unknown"))
+            + f"  ·  {m['demoted_cells']} demoted, {m['gaps']} gaps"
+        ),
     }.get(row.stage)
     took = (row.finished_at - row.started_at).total_seconds() if row.finished_at else 0
     head = f"{row.stage:<10} {row.status:<9} {took:>5.0f}s  ${row.cost_usd:<9}"
@@ -367,7 +386,7 @@ def run_pipeline_cmd(
     ),
 ) -> None:
     """Run the research pipeline: query_gen → search → triage → fetch → dedupe → extract →
-    cluster → shortlist."""
+    cluster → shortlist → verify → competitors."""
     if agent is not None:
         if from_stage or until or resume:
             _fail("--agent cannot be combined with --from, --until or --resume")
@@ -532,6 +551,67 @@ def landscape(
         f"{len(report['shortlist'])} problems shortlisted, "
         f"{len(report['insufficient_evidence'])} with insufficient evidence"
     )
+
+
+_CELL_MARK = {"yes": "yes", "partial": "part", "no": "no", "unknown": "?"}
+
+
+@app.command()
+def gaps(
+    run: int = typer.Argument(..., help="Research run id."),
+    as_json: bool = typer.Option(False, "--json", help="Print the stored matrices as JSON."),
+) -> None:
+    """Show a run's gap matrices and check the M4 exit rule: every cell is a cited fact or
+    unknown. Exits with status 1 if any cell breaks it."""
+    try:
+        with get_session_factory()() as session:
+            matrices = session.scalars(
+                select(GapMatrix).where(GapMatrix.run_id == run).order_by(GapMatrix.problem_id)
+            ).all()
+            problems = {
+                c.id: c.name
+                for c in session.scalars(select(ProblemCluster).where(ProblemCluster.run_id == run))
+            }
+            names = {
+                c.id: c.name
+                for c in session.scalars(select(Competitor).where(Competitor.run_id == run))
+            }
+            errors = check_gap_matrices(session, run)
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    if as_json:
+        payload = [
+            {"problem_id": m.problem_id, "problem": problems.get(m.problem_id), **m.matrix}
+            for m in matrices
+        ]
+        typer.echo(json.dumps({"matrices": payload, "errors": errors}, ensure_ascii=False,
+                              indent=2))  # fmt: skip
+    else:
+        if not matrices:
+            typer.echo(f"run {run} has no gap matrices; run competitors first")
+        for m in matrices:
+            matrix = m.matrix
+            ids = matrix.get("competitor_ids", [])
+            typer.secho(f"\n{problems.get(m.problem_id, m.problem_id)}", bold=True)
+            if not ids:
+                typer.echo("  no competitors confirmed on their own site")
+                continue
+            columns = (f"[{i}] {names.get(c, c)}" for i, c in enumerate(ids, 1))
+            typer.echo("  " + "  |  ".join(columns))
+            gap_dims = {g["dimension"] for g in matrix.get("gaps", [])}
+            for d in matrix.get("dimensions", []):
+                row = matrix["cells"].get(d["key"], {})
+                marks = " ".join(
+                    f"{_CELL_MARK.get(row.get(str(c), {}).get('value', '?'), '?'):>4}" for c in ids
+                )
+                flag = "  ← gap" if d["key"] in gap_dims else ""
+                typer.echo(f"  {d['label'][:40]:<40} {marks}{flag}")
+    if errors:
+        for e in errors:
+            typer.secho(f"violation: {e}", fg="red", err=True)
+        raise typer.Exit(1)
+    if matrices and not as_json:
+        typer.echo(f"\n{len(matrices)} matrices; every cell is a cited fact or unknown")
 
 
 @app.command()

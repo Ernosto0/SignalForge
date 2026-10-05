@@ -46,7 +46,9 @@ class Dedupe:
         cfg = ctx.defaults.dedupe
         with ctx.db() as session:
             documents = session.scalars(
-                select(Document).where(Document.run_id == ctx.run_id).order_by(Document.id)
+                select(Document)
+                .where(Document.run_id == ctx.run_id, Document.origin == "collect")
+                .order_by(Document.id)
             ).all()
             # The page cache is keyed by the URL that was fetched, which is the candidate's URL.
             fetched_url = dict(

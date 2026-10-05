@@ -92,6 +92,8 @@ class Shortlist:
             for c in clusters:
                 c.shortlisted = decisions[c.id].shortlisted
                 c.gate_trace = decisions[c.id].trace
+                # A new Gate-1 decision makes the second round stale; verify re-runs after this.
+                c.verification = None
             rows = [(c.id, c.evidence_strength, c.independent_source_count) for c in clusters]
 
         failed: dict[str, int] = {}
