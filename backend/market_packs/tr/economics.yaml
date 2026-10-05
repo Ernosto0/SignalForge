@@ -1,0 +1,12 @@
+# Dated wage / cost references for economic models (plan §8, §15 of the review table).
+# Manually maintained. Every entry needs a source URL and an as_of date; never add an unsourced
+# number. Filled in during M1/M5.
+#
+# Example shape:
+#   - name: minimum_wage_net_monthly
+#     value: 0
+#     currency: TRY
+#     unit: month
+#     as_of: 2026-01-01
+#     source_url: https://www.csgb.gov.tr/
+references: []

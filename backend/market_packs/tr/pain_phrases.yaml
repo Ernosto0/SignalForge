@@ -1,0 +1,41 @@
+# Turkish phrases that tend to accompany first-hand business pain, grouped by the signal type they
+# most often indicate (plan §5). Used by query_gen (M1) and as hints for extraction (M3).
+# Curate in M1: keep phrases that yield B2B pain, drop ones that mostly return consumer noise.
+workaround:
+  - "Excel'de takip ediyoruz"
+  - "Excel ile takip"
+  - "elle giriyoruz"
+  - "manuel olarak"
+  - "WhatsApp üzerinden"
+  - "WhatsApp grubundan"
+  - "telefonla arayıp"
+  - "her seferinde tekrar"
+  - "kağıt üzerinde"
+complaint:
+  - "çok vakit alıyor"
+  - "çok zaman kaybı"
+  - "sürekli hata"
+  - "takip etmek zor"
+  - "kontrol edemiyoruz"
+wish:
+  - "keşke"
+  - "programı yok mu"
+  - "yazılımı var mı"
+  - "nasıl otomatikleştirebilirim"
+  - "öneriniz var mı"
+tool_complaint:
+  - "programı çok yavaş"
+  - "destek alamıyoruz"
+  - "entegrasyon sorunu"
+price_signal:
+  - "çok pahalı"
+  - "aylık ücret"
+  - "lisans ücreti"
+labor_spend:
+  - "veri giriş elemanı"
+  - "operasyon sorumlusu"
+  - "evrak takip"
+regulatory:
+  - "zorunlu hale geliyor"
+  - "geçiş zorunluluğu"
+  - "son tarih"

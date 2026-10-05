@@ -1,0 +1,27 @@
+# Source registry: domain -> category, quality tier, access mode.
+# Tiers are starting guesses from plan §9 and are verified in M1 (robots.txt, fetchability, signal
+# quality). access: fetch | snippet_only (login-walled or JS-only: use the SERP snippet as evidence).
+# A domain entry also matches its subdomains.
+sources:
+  # --- high: official / statistics / associations
+  - { domain: resmigazete.gov.tr, category: official, tier: high, access: fetch }
+  - { domain: gib.gov.tr, category: official, tier: high, access: fetch }
+  - { domain: tuik.gov.tr, category: statistics, tier: high, access: fetch }
+  - { domain: tobb.org.tr, category: association, tier: high, access: fetch }
+  - { domain: utikad.org.tr, category: association, tier: high, access: fetch, notes: logistics }
+  - { domain: und.org.tr, category: association, tier: high, access: fetch, notes: road transport }
+  # --- medium: job postings, complaints, reviews, forums
+  - { domain: kariyer.net, category: jobs, tier: medium, access: fetch }
+  - { domain: secretcv.com, category: jobs, tier: medium, access: fetch }
+  - { domain: yenibiris.com, category: jobs, tier: medium, access: fetch }
+  - domain: sikayetvar.com
+    category: complaints
+    tier: medium
+    access: fetch
+    notes: B2C-heavy; use for tool_complaint on B2B products
+  - { domain: play.google.com, category: reviews, tier: medium, access: snippet_only }
+  - { domain: technopat.net, category: forum, tier: medium, access: fetch }
+  - { domain: donanimhaber.com, category: forum, tier: medium, access: fetch }
+  - { domain: linkedin.com, category: social, tier: medium, access: snippet_only }
+  # --- low: anonymous opinion
+  - { domain: eksisozluk.com, category: forum, tier: low, access: fetch, notes: anonymous/opinion }

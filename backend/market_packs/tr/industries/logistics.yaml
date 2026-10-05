@@ -1,0 +1,12 @@
+# Submarket and terminology seeds for the plan stage (M1). Not exhaustive; the plan is human-edited.
+id: logistics
+name_en: Logistics
+name_tr: Lojistik
+terms: [sevkiyat, irsaliye, CMR, konşimento, tır, filo, yükleme, araç takip, depo, gümrük]
+submarkets:
+  - { name_en: Road freight, name_tr: Karayolu taşımacılığı / nakliye }
+  - { name_en: International freight forwarding, name_tr: Uluslararası taşımacılık / forwarder }
+  - { name_en: Warehousing, name_tr: Depolama / antrepo }
+  - { name_en: Courier and last mile, name_tr: Kargo / son kilometre teslimat }
+  - { name_en: Customs brokerage, name_tr: Gümrük müşavirliği }
+  - { name_en: Cold chain, name_tr: Soğuk zincir lojistiği }

@@ -1,0 +1,16 @@
+# Known mandates and official sources. These are search seeds, not facts: a mandate becomes a fact
+# claim only after we fetch an official page that states it.
+official_sources:
+  - { domain: gib.gov.tr, about: "Tax administration: e-Fatura, e-Arşiv, e-İrsaliye, e-Defter" }
+  - { domain: efatura.gov.tr, about: "e-Belge portal" }
+  - { domain: kvkk.gov.tr, about: "Personal data protection authority (KVKK)" }
+  - { domain: resmigazete.gov.tr, about: "Official Gazette: laws, regulations, deadlines" }
+mandates:
+  - name: e-Fatura / e-Arşiv
+    seeds: ["e-Fatura geçiş zorunluluğu", "e-Arşiv fatura zorunluluğu"]
+  - name: e-İrsaliye
+    seeds: ["e-İrsaliye zorunluluğu", "e-İrsaliye geçiş tarihi"]
+  - name: e-Defter
+    seeds: ["e-Defter zorunluluğu"]
+  - name: KVKK
+    seeds: ["KVKK uyum süreci", "VERBİS kayıt zorunluluğu"]

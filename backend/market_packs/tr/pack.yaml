@@ -1,0 +1,13 @@
+# Market pack: Turkey. Adding a country = adding a pack directory; no code changes expected.
+id: tr
+version: "0.1.0"
+country: TR
+language: tr
+currency: TRY
+report_language: en
+search:
+  gl: tr
+  hl: tr
+  google_domain: google.com.tr
+# Tier assumed for domains not listed in sources.yaml.
+default_tier: low
