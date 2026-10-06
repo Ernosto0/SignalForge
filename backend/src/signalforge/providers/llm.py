@@ -10,6 +10,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Any, Protocol
 
+import openai
 from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import select, update
@@ -28,11 +29,21 @@ class ModelTier(StrEnum):
 
 
 class LLMError(RuntimeError):
-    pass
+    """This call's answer is unusable (refused, truncated, a bad request); callers may skip it."""
 
 
 class BudgetExceeded(LLMError):
     """The run has spent its budget; the runner stops cleanly and the run can be resumed."""
+
+
+class LLMUnavailable(RuntimeError):
+    """The provider cannot be reached or refuses every call (network, rate limit, 5xx, auth),
+    even after the SDK's retries.
+
+    Deliberately not an :class:`LLMError`: stages skip an ``LLMError`` as one bad answer, but an
+    outage would then turn into a "completed" stage with silently missing work. This stops the
+    stage instead; finished calls are cached, so resuming the run repeats only what failed.
+    """
 
 
 @dataclass(frozen=True)
@@ -59,11 +70,26 @@ class LLMClient(Protocol):
 
 class OpenAIClient:
     def __init__(
-        self, api_key: str | None, timeout_s: float = 120, client: OpenAI | None = None
+        self,
+        api_key: str | None,
+        timeout_s: float = 120,
+        client: OpenAI | None = None,
+        max_retries: int = 2,
     ) -> None:
         self._api_key = api_key
         self._timeout_s = timeout_s
+        self._max_retries = max_retries
         self._client = client
+
+    def _sdk(self) -> OpenAI:
+        """The SDK client, created on first use (commands without LLM calls need no key)."""
+        if self._client is None:
+            if not self._api_key:
+                raise LLMError("no OpenAI API key configured (set OPENAI_API_KEY in .env)")
+            self._client = OpenAI(
+                api_key=self._api_key, timeout=self._timeout_s, max_retries=self._max_retries
+            )
+        return self._client
 
     def parse(
         self,
@@ -74,18 +100,25 @@ class OpenAIClient:
         schema: type[BaseModel],
         max_output_tokens: int,
     ) -> Completion:
-        if self._client is None:
-            if not self._api_key:
-                raise LLMError("no OpenAI API key configured (set OPENAI_API_KEY in .env)")
-            self._client = OpenAI(api_key=self._api_key, timeout=self._timeout_s)
-        raw = self._client.responses.with_raw_response.parse(
-            model=model,
-            instructions=instructions,
-            input=input,
-            text_format=schema,
-            max_output_tokens=max_output_tokens,
-            store=False,
-        )
+        sdk = self._sdk()
+        try:
+            raw = sdk.responses.with_raw_response.parse(
+                model=model,
+                instructions=instructions,
+                input=input,
+                text_format=schema,
+                max_output_tokens=max_output_tokens,
+                store=False,
+            )
+        except (openai.BadRequestError, openai.UnprocessableEntityError) as exc:
+            # This request is at fault (e.g. input too long), not the provider: skippable.
+            raise LLMError(f"{type(exc).__name__}: {exc}") from exc
+        except openai.APIError as exc:
+            raise LLMUnavailable(
+                f"OpenAI call failed (up to {self._max_retries} retries): "
+                f"{type(exc).__name__}: {exc}. Finished calls are cached; once the provider is "
+                "reachable, resume with `signalforge run --run <id> --resume`."
+            ) from exc
         try:
             response = raw.parse()
         except ValidationError as exc:

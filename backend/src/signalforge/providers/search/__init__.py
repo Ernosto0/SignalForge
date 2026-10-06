@@ -6,6 +6,7 @@ from signalforge.providers.search.base import (
     SearchLocale,
     SearchProvider,
     SearchResponse,
+    search_with_retries,
 )
 from signalforge.providers.search.serpapi import SerpApiSearch
 
@@ -17,6 +18,7 @@ __all__ = [
     "SearchProvider",
     "SearchResponse",
     "make_search_provider",
+    "search_with_retries",
 ]
 
 

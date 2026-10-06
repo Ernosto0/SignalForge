@@ -22,6 +22,9 @@ from signalforge.pipeline.context import RunContext
 from signalforge.providers.cache import cache_key
 from signalforge.providers.llm import BudgetExceeded
 
+# Run statuses a failed stage leaves behind; a later successful stage makes the run "stopped".
+RESUMABLE_FAILURES = ("failed", "paused_budget")
+
 
 @dataclass
 class StageResult:
@@ -91,6 +94,11 @@ def run_stage(ctx: RunContext, stage: Stage) -> StageRun:
         row.metrics = result.metrics
         row.finished_at = datetime.now(UTC)
         row.cost_usd = _spent(session, run_id) - spent_before
+        run = session.get_one(ResearchRun, run_id)
+        if run.status in RESUMABLE_FAILURES:
+            # The stage that failed has now succeeded: the run is resumable again, not failed.
+            # (run_pipeline sets its own statuses around the stages it runs.)
+            run.status = "stopped"
     return row
 
 

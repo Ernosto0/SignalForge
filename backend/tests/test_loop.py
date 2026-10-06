@@ -6,12 +6,14 @@ the same script replays deterministically (and hits the LLM cache on a re-run).
 
 import re
 
+import pytest
 from fakes import PACK, PLAN, FakeLLM, FakeSearch, make_context
 
 from signalforge.agents.loop import LoopAction, LoopPage, _Observation, render_input, run_loop
 from signalforge.config import get_defaults
 from signalforge.pipeline.runner import create_run
 from signalforge.prompts import load_prompt
+from signalforge.providers.llm import LLMUnavailable
 from signalforge.providers.search import SearchHit, SearchLocale
 from signalforge.providers.urls import canonicalize_url
 
@@ -136,6 +138,28 @@ def test_budgets_stop_the_loop(db) -> None:
     tight = BUDGET.model_copy(update={"max_searches": 1, "max_fetches": 2})
     trace, _, _ = _loop(db, search("a b"), fetch(1), fetch(2), budget=tight)
     assert trace.stop_reason == "budget" and len(trace.pages) == 2
+
+
+def test_a_timed_out_search_is_retried_and_counts_once(db, monkeypatch) -> None:
+    # FakeSearch times out once on a query containing "bad"; the retry answers it.
+    monkeypatch.setattr("signalforge.providers.search.base.time.sleep", lambda _: None)
+    trace, _, _ = _loop(db, search("bad irsaliye takibi"), search("gümrük evrakı"))
+    assert [s.error for s in trace.searches] == [None, None]
+    assert len(trace.searches[0].hits) == 3
+    assert trace.actions[0]["outcome"] == "3 hits"
+    assert len(trace.searches) == 2 and trace.rejections == {}
+
+
+def test_an_unreachable_llm_stops_the_loop_instead_of_ending_it_quietly(db) -> None:
+    def offline(_: str) -> LoopAction:
+        raise LLMUnavailable("OpenAI call failed: ConnectError")
+
+    run_id = create_run(db, PLAN, PACK, DEFAULTS)
+    ctx = make_context(db, run_id, FakeSearch(), FakeLLM({LoopAction: offline}))
+    with pytest.raises(LLMUnavailable):
+        run_loop(ctx, stage="verify", prompt=load_prompt("verify_loop"), goal="g", budget=BUDGET,
+                 allowed_domains=[], known_urls=set(), known_queries=set(),
+                 on_page=lambda p: "ok")  # fmt: skip
 
 
 class SnippetSearch:

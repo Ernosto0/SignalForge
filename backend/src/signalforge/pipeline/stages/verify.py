@@ -59,7 +59,11 @@ from signalforge.evidence.extraction import (
     extract_document,
     write_signals,
 )
-from signalforge.evidence.independence import same_author_groups, source_units
+from signalforge.evidence.independence import (
+    same_author_groups,
+    same_quote_groups,
+    source_units,
+)
 from signalforge.evidence.strength import UNLISTED, SignalRef, SourceDoc, evidence_strength
 from signalforge.packs import MarketPack
 from signalforge.pipeline.context import RunContext
@@ -342,8 +346,8 @@ def write_independence(
     verify_texts: dict[int, str],
     problem_docs: set[int],
 ) -> dict[str, int]:
-    """Duplicate and same-author groups that involve a verify document (collected documents'
-    groups were written by dedupe and extract)."""
+    """Duplicate, same-author and same-quote groups that involve a verify document (collected
+    documents' groups were written by dedupe and extract)."""
     verify_ids = set(verify_texts)
     if not verify_ids:
         return {}
@@ -357,13 +361,17 @@ def write_independence(
         ctx.defaults.dedupe,
     )
     authors: dict[int, set[str]] = {}
-    for doc_id, h in session.execute(
-        select(Excerpt.document_id, Excerpt.author_hash).where(
-            Excerpt.run_id == ctx.run_id, Excerpt.author_hash.is_not(None)
+    quotes: dict[int, set[str]] = {}
+    for doc_id, h, quote in session.execute(
+        select(Excerpt.document_id, Excerpt.author_hash, Excerpt.quote).where(
+            Excerpt.run_id == ctx.run_id
         )
     ):
-        authors.setdefault(doc_id, set()).add(h)
+        if h is not None:
+            authors.setdefault(doc_id, set()).add(h)
+        quotes.setdefault(doc_id, set()).add(quote)
     groups += same_author_groups(authors)
+    groups += same_quote_groups(quotes, ctx.defaults.dedupe.same_quote_min_words)
     counts: Counter[str] = Counter()
     for g in groups:
         if verify_ids & set(g.document_ids):

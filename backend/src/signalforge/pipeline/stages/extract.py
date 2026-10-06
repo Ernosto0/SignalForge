@@ -5,7 +5,8 @@ comes from the page cache; snippet-only documents use their SERP title + snippet
 through :func:`signalforge.evidence.extraction.extract_document` (chunking, fast-model proposals,
 quote verification); unverifiable quotes are dropped and counted. Every kept signal is stored with
 its excerpt and one ``fact`` claim supported by that excerpt. Authors are stored only as salted
-hashes, and documents sharing one form ``same_author`` independence groups.
+hashes; documents sharing one form ``same_author`` independence groups, and documents quoting the
+same passage (one complaint shown on several listing pages) form ``same_quote`` groups.
 """
 
 from collections import Counter, defaultdict
@@ -28,7 +29,7 @@ from signalforge.evidence.extraction import (
     extract_document,
     write_signals,
 )
-from signalforge.evidence.independence import same_author_groups
+from signalforge.evidence.independence import same_author_groups, same_quote_groups
 from signalforge.packs import MarketPack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult, load_run_plan
@@ -38,12 +39,15 @@ from signalforge.providers.fetch import FetchStatus
 from signalforge.providers.llm import ModelTier
 
 DUPLICATE_RULES = ("near_dup", "syndicated")
+# Groups this stage writes (and replaces): both documents are read, but count as one source.
+EXTRACT_RULES = ("same_author", "same_quote")
 
 
 @dataclass
 class Extracted:
     signals: list[KeptSignal]
     author_groups: list[DuplicateGroup]
+    quote_groups: list[DuplicateGroup]
     metrics: dict[str, Any] = field(default_factory=dict)
 
 
@@ -57,8 +61,11 @@ def extract(
     cfg: ExtractDefaults,
     propose: ExtractFn,
     salt: str,
+    *,
+    quote_min_words: int,
 ) -> Extracted:
-    """Extract every document (in parallel), then group documents that share an author."""
+    """Extract every document (in parallel), then group documents that share an author or a
+    quoted passage (``quote_min_words``: ``dedupe.same_quote_min_words``)."""
     with ThreadPoolExecutor(max_workers=max(cfg.concurrency, 1)) as pool:
         per_doc = list(
             pool.map(lambda d: extract_document(d, plan, pack, cfg, propose, salt), sources)
@@ -74,7 +81,13 @@ def extract(
         if item.author_hash:
             authors[item.document_id].add(item.author_hash)
     groups = same_author_groups(authors)
-    return Extracted(kept, groups, extract_metrics(sources, kept, groups, notes))
+    quotes: dict[int, set[str]] = defaultdict(set)
+    for item in kept:
+        quotes[item.document_id].add(item.match.quote)
+    quote_groups = same_quote_groups(quotes, quote_min_words)
+    metrics = extract_metrics(sources, kept, groups, notes)
+    metrics["same_quote_groups"] = len(quote_groups)
+    return Extracted(kept, groups, quote_groups, metrics)
 
 
 def extract_metrics(
@@ -222,7 +235,10 @@ class Extract:
             )
             return result.output, result.cache_hit
 
-        extracted = extract(sources, plan, ctx.pack, cfg, propose, salt)
+        extracted = extract(
+            sources, plan, ctx.pack, cfg, propose, salt,
+            quote_min_words=ctx.defaults.dedupe.same_quote_min_words,
+        )  # fmt: skip
 
         with ctx.db.begin() as session:
             # Idempotent: replaces this run's excerpts (signals cascade), their fact claims and the
@@ -232,13 +248,13 @@ class Extract:
             session.execute(
                 delete(IndependenceGroup).where(
                     IndependenceGroup.run_id == ctx.run_id,
-                    IndependenceGroup.rule == "same_author",
+                    IndependenceGroup.rule.in_(EXTRACT_RULES),
                 )
             )
             write_signals(session, ctx.run_id, extracted.signals, stage=self.name)
             session.add_all(
                 IndependenceGroup(run_id=ctx.run_id, rule=g.rule, document_ids=g.document_ids)
-                for g in extracted.author_groups
+                for g in [*extracted.author_groups, *extracted.quote_groups]
             )
 
         input_hash = cache_key(

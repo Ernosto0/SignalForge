@@ -306,6 +306,11 @@ def test_stage_failure_is_recorded_with_cost(db) -> None:
     assert stage.cost_usd == Decimal("0.0013") and run.status == "failed"
     assert _queries(db, run_id) == []
 
+    # A successful re-run of the stage leaves the run resumable, not failed.
+    assert run_stage(_context(db, run_id, FakeLLMClient()), QueryGen()).status == "completed"
+    with db() as session:
+        assert session.get(ResearchRun, run_id).status == "stopped"
+
 
 # --- provider: truncated structured output --------------------------------------------------
 

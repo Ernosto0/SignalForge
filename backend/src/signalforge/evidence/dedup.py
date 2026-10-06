@@ -2,8 +2,8 @@
 
 Duplicates collapse into one independent source. A group whose members all live on one domain is a
 ``near_dup`` (same page under several URLs, mirrors, templated pages); a group spanning domains is
-``syndicated`` (copied or republished text). Author-based grouping (``same_author``) needs excerpt
-authors and arrives with extraction (M3).
+``syndicated`` (copied or republished text). Author- and quote-based grouping (``same_author``,
+``same_quote``) needs excerpts and happens in extraction (evidence/independence.py).
 """
 
 import hashlib
@@ -26,7 +26,7 @@ class DocText:
 
 @dataclass(frozen=True)
 class DuplicateGroup:
-    rule: str  # near_dup | syndicated | same_author
+    rule: str  # near_dup | syndicated | same_author | same_quote
     document_ids: list[int]
 
 

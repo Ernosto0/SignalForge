@@ -152,7 +152,7 @@ All stage I/O is Pydantic (`domain/`); persisted via SQLAlchemy (`db/`) with JSO
 | `Document` | canonical_url, domain, source_category, quality_tier, published_at (nullable), fetched_at, text_hash, lang, `snippet_only` flag | full text in cache table, not exported |
 | `Excerpt` | document_id, quote (original), translation, char_start/end, verified (`exact` / `fuzzy`), author_hash | ≤ ~500 chars |
 | `Signal` | excerpt_id, type, actor (role / company type as stated), workflow, statement, first_hand (bool) | types below |
-| `IndependenceGroup` | id, rule (`same_author` / `syndicated` / `near_dup`), member document ids | |
+| `IndependenceGroup` | id, rule (`same_author` / `same_quote` / `syndicated` / `near_dup`), member document ids | |
 | `ProblemCluster` | run_id, name, description, signal_ids, independent_source_count, source_category_mix, evidence_strength | |
 | `Claim` | kind (`fact` / `inference` / `hypothesis` / `assumption`), statement, supports (excerpt ids), derived_from (claim ids), stage, entailment_checked | §7 |
 | `Competitor` | name, url, segment, geo, pricing (amount, currency, period, observed_at) | attributes stored as fact claims |
@@ -215,7 +215,9 @@ buyer_research + monetization; `score` → opportunity_scorer; `report` → repo
    - Model background knowledge (e.g. "Competitor X exists") is only a **search seed**; it becomes a
      fact only after we fetch a page that states it.
 3. **Independence.** Evidence counts use independence groups: same author, syndicated/copied text
-   (MinHash ≥ threshold), and same-origin reposts collapse to one source.
+   (MinHash ≥ threshold), the same quoted passage on several pages (`same_quote`, ≥ 8 words: one
+   complaint shown on several listing pages of a complaint site), and same-origin reposts collapse
+   to one source.
 4. **Report writer is constrained.** It receives the claim table and returns `report.json`, where every
    bullet carries `claim_ids`. The validator rejects / regenerates when: a factual section bullet has no
    citation; a number or proper noun in the bullet doesn't appear in its cited claims; a hypothesis is

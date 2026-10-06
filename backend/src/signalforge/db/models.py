@@ -221,7 +221,9 @@ class IndependenceGroup(Base):
 
     id: Mapped[int] = _pk()
     run_id: Mapped[int] = _run_fk()
-    rule: Mapped[str] = mapped_column(String(16))  # same_author | syndicated | near_dup
+    rule: Mapped[str] = mapped_column(
+        String(16)
+    )  # same_author | same_quote | syndicated | near_dup
     document_ids: Mapped[list[int]] = mapped_column(ARRAY(BigInteger))
 
 

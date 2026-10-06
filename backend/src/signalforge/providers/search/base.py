@@ -1,3 +1,4 @@
+import time
 from typing import Protocol
 
 from pydantic import BaseModel
@@ -59,3 +60,23 @@ class CachedSearch:
         )
         hits = [SearchHit.model_validate(h) for h in cached.response["hits"]]
         return SearchResponse(hits=hits, cache_hit=cached.hit)
+
+
+def search_with_retries(
+    search: CachedSearch, query: str, locale: SearchLocale, n: int, retries: int
+) -> tuple[SearchResponse, int]:
+    """Search, retrying provider errors (timeouts, mostly) with backoff; returns the response and
+    the attempts it took, or raises the last :class:`SearchError` after ``retries + 1`` attempts.
+
+    Each attempt may cost a provider credit: SerpApi charged both the timed-out attempt and its
+    retry in the first live runs. Only successful answers are cached (by us), so a stage re-run
+    never repeats them.
+    """
+    for attempt in range(1, retries + 2):
+        try:
+            return search.search(query, locale, n), attempt
+        except SearchError:
+            if attempt > retries:
+                raise
+            time.sleep(2**attempt)
+    raise AssertionError("unreachable")

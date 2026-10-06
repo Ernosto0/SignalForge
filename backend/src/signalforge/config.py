@@ -72,6 +72,7 @@ class FetchDefaults(BaseModel):
 
 class LLMDefaults(BaseModel):
     timeout_s: float
+    max_retries: int  # SDK retries on connection errors, timeouts, 429 and 5xx (with backoff)
     max_output_tokens: int
     pricing: dict[str, ModelPrice]
 
@@ -119,6 +120,7 @@ class DedupeDefaults(BaseModel):
     num_perm: int
     near_dup_threshold: float
     min_words: int
+    same_quote_min_words: int
 
 
 class ExtractDefaults(BaseModel):

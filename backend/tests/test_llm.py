@@ -1,6 +1,8 @@
 from decimal import Decimal
 
+import httpx
 import pytest
+from openai import OpenAI
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,7 +17,9 @@ from signalforge.providers.llm import (
     Completion,
     LLMError,
     LLMService,
+    LLMUnavailable,
     ModelTier,
+    OpenAIClient,
     compute_cost,
 )
 
@@ -185,3 +189,45 @@ def test_model_without_pricing_fails_before_calling(db) -> None:
     with pytest.raises(LLMError, match="no pricing"):
         _service(db, client).parse(ModelTier.ANALYSIS, PROMPT, TEXT, Anything)
     assert client.calls == []
+
+
+# --- provider: SDK errors -------------------------------------------------------------------
+
+
+def _sdk_client(handler) -> OpenAIClient:
+    # max_retries=0: the SDK's own retry loop is not under test here.
+    transport = httpx.MockTransport(handler)
+    sdk = OpenAI(api_key="test", max_retries=0, http_client=httpx.Client(transport=transport))
+    return OpenAIClient("test", client=sdk)
+
+
+def _parse(client: OpenAIClient) -> Completion:
+    return client.parse(
+        model="gpt-6-luna", instructions="x", input="y", schema=PainCheck, max_output_tokens=100
+    )
+
+
+def test_unreachable_provider_is_unavailable_not_a_skippable_llm_error() -> None:
+    def no_dns(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("[Errno 11001] getaddrinfo failed", request=request)
+
+    def overloaded(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(503, json={"error": {"message": "overloaded", "type": "server"}})
+
+    for handler in (no_dns, overloaded):
+        with pytest.raises(LLMUnavailable, match="--resume") as exc:
+            _parse(_sdk_client(handler))
+        # Stages skip LLMError as one bad answer; an outage must stop them instead.
+        assert not isinstance(exc.value, LLMError)
+
+
+def test_a_bad_request_is_a_skippable_llm_error() -> None:
+    def too_long(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, json={"error": {"message": "input too long", "type": "invalid"}})
+
+    with pytest.raises(LLMError, match="input too long"):
+        _parse(_sdk_client(too_long))
+
+
+def test_the_client_passes_its_retry_setting_to_the_sdk() -> None:
+    assert OpenAIClient("test", max_retries=6)._sdk().max_retries == 6

@@ -195,7 +195,7 @@ def test_fetch_stops_at_max_attempts() -> None:
 
 
 def test_collection_pipeline_end_to_end(db, monkeypatch) -> None:
-    monkeypatch.setattr("signalforge.pipeline.stages.search.time.sleep", lambda _: None)
+    monkeypatch.setattr("signalforge.providers.search.base.time.sleep", lambda _: None)
     run_id = create_run(db, PLAN, PACK, get_defaults())
     with db.begin() as session:
         session.add_all(

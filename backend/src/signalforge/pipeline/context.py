@@ -48,7 +48,7 @@ class RunContext:
             search=CachedSearch(make_search_provider(settings, defaults.search.timeout_s), cache),
             fetcher=CachedFetcher(Fetcher(defaults.fetch), cache),
             llm=LLMService(
-                OpenAIClient(api_key, defaults.llm.timeout_s),
+                OpenAIClient(api_key, defaults.llm.timeout_s, max_retries=defaults.llm.max_retries),
                 cache,
                 db,
                 settings,

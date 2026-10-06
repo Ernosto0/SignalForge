@@ -93,6 +93,28 @@ def test_chunk_text_cuts_at_boundaries_with_overlap_and_cap() -> None:
     assert chunks[1][0] < chunks[0][0] + len(chunks[0][1])  # overlap
 
 
+def test_extract_groups_documents_quoting_the_same_passage() -> None:
+    # One complaint shown on two listing pages (docs 1, 2); docs 3, 4 share only a stock phrase.
+    sources = [
+        _source(1, "Şikayetler, sayfa 1. " + PARAGRAPH, domain="sikayet.com"),
+        _source(2, "Kargo şikayetleri. " + PARAGRAPH, domain="sikayet.com"),
+        _source(3, "Büro A. " + OTHER),
+        _source(4, "Büro B. " + OTHER),
+    ]
+    complaint = PARAGRAPH.split(". ")[0] + "."  # 15 words
+    stock = "beyanname hazırlığı gecikiyor"  # 3 words: different people say this
+
+    def propose(prompt_input: str) -> tuple[ExtractionBatch, bool]:
+        text = prompt_input.split("# Text\n", 1)[1]
+        quote = complaint if "Nakliye" in text else stock
+        return ExtractionBatch(signals=[_signal(quote)]), False
+
+    result = extract(sources, PLAN, PACK, EXTRACT, propose, salt="s", quote_min_words=8)
+    assert len(result.signals) == 4
+    assert [(g.rule, g.document_ids) for g in result.quote_groups] == [("same_quote", [1, 2])]
+    assert result.metrics["same_quote_groups"] == 1
+
+
 def test_extract_keeps_only_verified_quotes_and_groups_authors() -> None:
     sources = [
         _source(1, PARAGRAPH),
@@ -129,7 +151,7 @@ def test_extract_keeps_only_verified_quotes_and_groups_authors() -> None:
             False,
         )
 
-    result = extract(sources, PLAN, PACK, EXTRACT, propose, salt="s")
+    result = extract(sources, PLAN, PACK, EXTRACT, propose, salt="s", quote_min_words=8)
 
     assert [(k.document_id, k.match.verified, k.submarket) for k in result.signals] == [
         (1, "exact", ROAD),
@@ -138,6 +160,7 @@ def test_extract_keeps_only_verified_quotes_and_groups_authors() -> None:
     assert result.signals[0].match.quote == first_sentence  # source text, not the model's copy
     assert result.signals[0].author_hash == result.signals[1].author_hash
     assert [(g.rule, g.document_ids) for g in result.author_groups] == [("same_author", [1, 2])]
+    assert result.quote_groups == [] and result.metrics["same_quote_groups"] == 0
     m = result.metrics
     assert (m["quotes_proposed"], m["quotes_unverified"], m["quote_pass_rate"]) == (6, 2, 0.667)
     assert (m["dropped_length"], m["dropped_overlap"], m["llm_errors"]) == (1, 1, 1)
@@ -370,7 +393,7 @@ def _cluster_answer(prompt_input: str) -> ClusterBatch:
 
 
 def test_problem_discovery_writes_signals_claims_and_clusters(db, monkeypatch) -> None:
-    monkeypatch.setattr("signalforge.pipeline.stages.search.time.sleep", lambda _: None)
+    monkeypatch.setattr("signalforge.providers.search.base.time.sleep", lambda _: None)
     run_id = create_run(db, PLAN, PACK, DEFAULTS)
     with db.begin() as session:
         session.add_all(

@@ -46,7 +46,7 @@ from signalforge.pipeline.runner import create_run, latest_stage_runs, run_pipel
 from signalforge.pipeline.stages.query_gen import QueryGen
 from signalforge.prompts import load_prompt
 from signalforge.providers.cache import CacheMiss
-from signalforge.providers.llm import LLMError, ModelTier
+from signalforge.providers.llm import LLMError, LLMUnavailable, ModelTier
 from signalforge.providers.search import SearchError
 from signalforge.providers.urls import domain_of
 from signalforge.reporting.landscape import build_landscape, render_landscape
@@ -80,7 +80,7 @@ def _run_context(
 ) -> Iterator[RunContext]:
     try:
         yield RunContext.create(cache_mode=ctx.obj["cache_mode"], pack_id=pack, run_id=run_id)
-    except (CacheMiss, SearchError, LLMError) as exc:
+    except (CacheMiss, SearchError, LLMError, LLMUnavailable) as exc:
         _fail(str(exc))
     except OperationalError as exc:
         _fail(
@@ -587,8 +587,6 @@ def gaps(
         typer.echo(json.dumps({"matrices": payload, "errors": errors}, ensure_ascii=False,
                               indent=2))  # fmt: skip
     else:
-        if not matrices:
-            typer.echo(f"run {run} has no gap matrices; run competitors first")
         for m in matrices:
             matrix = m.matrix
             ids = matrix.get("competitor_ids", [])

@@ -24,6 +24,10 @@ fetch:
 
 llm:
   timeout_s: 120
+  # Retries on connection errors, timeouts, 429 and 5xx, with the SDK's backoff (0.5 s doubling,
+  # capped at 8 s): 6 retries wait ~24 s, enough for a DNS or network blip. A call still failing
+  # after that stops the stage (LLMUnavailable); finished calls are cached, so `--resume` is cheap.
+  max_retries: 6
   max_output_tokens: 4000
   # USD per 1M tokens. Every model referenced by LLM_MODEL_* must be listed, or calls fail loudly
   # (an unknown price would make the budget cap meaningless).
@@ -111,6 +115,9 @@ dedupe:
   near_dup_threshold: 0.8
   # Shorter texts produce too few shingles for a stable estimate; only exact text matches count.
   min_words: 40
+  # Two documents quoting the same passage of at least this many words count as one source
+  # (`same_quote`, extract stage): one complaint shown on several listing pages of a site.
+  same_quote_min_words: 8
 
 # --- M3 signals & problem landscape: extract → cluster → shortlist (plan §4, §7, §8.1) -------
 

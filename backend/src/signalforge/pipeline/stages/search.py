@@ -6,7 +6,6 @@ Provider errors are retried; a query that still fails is counted and skipped, so
 doesn't sink the run. Rerunning the stage re-searches only what isn't cached.
 """
 
-import time
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -19,7 +18,7 @@ from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult
 from signalforge.pipeline.stages.query_gen import INTENTS
 from signalforge.providers.cache import cache_key
-from signalforge.providers.search import SearchError, SearchResponse
+from signalforge.providers.search import SearchError, SearchResponse, search_with_retries
 from signalforge.providers.urls import canonicalize_url, domain_of, in_domain
 
 
@@ -48,14 +47,13 @@ class Search:
             raise ValueError(f"run {ctx.run_id} has no queries; run query_gen first")
 
         def search_one(query: Query) -> _Outcome:
-            for attempt in range(1, cfg.search_retries + 2):
-                try:
-                    return _Outcome(query, ctx.search.search(query.text, locale, n), attempt)
-                except SearchError as exc:
-                    error = str(exc)
-                    if attempt <= cfg.search_retries:
-                        time.sleep(2**attempt)
-            return _Outcome(query, None, attempt, error)
+            try:
+                response, attempts = search_with_retries(
+                    ctx.search, query.text, locale, n, cfg.search_retries
+                )
+            except SearchError as exc:
+                return _Outcome(query, None, cfg.search_retries + 1, str(exc))
+            return _Outcome(query, response, attempts)
 
         with ThreadPoolExecutor(max_workers=max(cfg.search_concurrency, 1)) as pool:
             outcomes = list(pool.map(search_one, queries))

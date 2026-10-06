@@ -29,6 +29,20 @@ def parse_date(value: str | None) -> datetime | None:
         return None
 
 
+def page_date(published: str | None, fetched_at: datetime) -> datetime | None:
+    """A page's publication date, or ``None`` when it cannot be trusted.
+
+    When a page carries no reliable date, date extraction (htmldate, via trafilatura) falls back
+    to the current day, so a date on or after the fetch day is far more often that fallback than
+    a real same-day post (seen on listing pages and on a 2019 article in the first live run).
+    Unknown dates get the neutral ``strength.unknown_date`` recency credit instead of full credit.
+    """
+    parsed = parse_date(published)
+    if parsed is None or parsed.date() >= fetched_at.astimezone(UTC).date():
+        return None
+    return parsed
+
+
 def snippet_document(c: UrlCandidate, now: datetime) -> Document:
     return Document(
         url=c.url,
@@ -57,7 +71,7 @@ def page_document(c: UrlCandidate, page: FetchedPage, pack: MarketPack) -> Docum
         source_category=source.category if source else c.source_category,
         quality_tier=source.tier if source else c.quality_tier,
         snippet_only=False,
-        published_at=parse_date(page.published_at),
+        published_at=page_date(page.published_at, page.fetched_at),
         fetched_at=page.fetched_at,
         text_hash=text_hash(text),
         lang=guess_language(text) or page.html_lang,
@@ -83,7 +97,7 @@ def loop_page_document(page: FetchedPage, pack: MarketPack) -> Document:
         source_category=source.category if source else None,
         quality_tier=source.tier if source else pack.default_tier,
         snippet_only=False,
-        published_at=parse_date(page.published_at),
+        published_at=page_date(page.published_at, page.fetched_at),
         fetched_at=page.fetched_at,
         text_hash=text_hash(text),
         lang=guess_language(text) or page.html_lang,

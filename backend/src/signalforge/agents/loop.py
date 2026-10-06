@@ -16,6 +16,10 @@ Mechanical guards:
 - the loop stops on ``finish``, when steps / searches / fetches run out, or after
   ``max_rejections_in_row`` rejected actions in a row.
 
+Provider errors on a search are retried like the collection ``search`` stage's
+(``collect.search_retries``); the retries count as one search. An LLM error (``LLMError``) ends
+the loop with ``llm_error``; an unreachable provider (``LLMUnavailable``) stops the stage.
+
 The loop never writes to the database: it returns a :class:`LoopTrace`, and the stage persists
 queries and results (:func:`store_searches`), documents and evidence afterwards (one writer, no
 races between problems running in parallel). The model's input is a pure function of the goal and
@@ -38,7 +42,7 @@ from signalforge.pipeline.context import RunContext
 from signalforge.prompts import Prompt
 from signalforge.providers.fetch import FetchedPage, FetchStatus
 from signalforge.providers.llm import BudgetExceeded, LLMError, ModelTier
-from signalforge.providers.search import SearchError, SearchHit
+from signalforge.providers.search import SearchError, SearchHit, search_with_retries
 from signalforge.providers.urls import canonicalize_url, domain_of, in_domain
 from signalforge.queries import Deduper, clean_query
 
@@ -288,7 +292,10 @@ def run_loop(
             searches_left -= 1
             rejected_in_row = 0
             try:
-                response = ctx.search.search(query, locale, n)
+                # Timeouts are retried here, so a slow answer doesn't cost the loop a search.
+                response, _ = search_with_retries(
+                    ctx.search, query, locale, n, ctx.defaults.collect.search_retries
+                )
             except SearchError as exc:
                 trace.searches.append(LoopSearch(step, query, [], False, str(exc)))
                 trace.actions[-1]["outcome"] = "search_error"

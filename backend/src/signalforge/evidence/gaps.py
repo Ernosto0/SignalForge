@@ -2,7 +2,9 @@
 
 A cell with a value (``yes`` / ``partial`` / ``no``) must cite a fact claim of the same run that
 belongs to that cell's competitor, rests on stored excerpts, and has not failed entailment. Every
-(dimension, competitor) pair must have a cell. The ``competitors`` stage enforces this when it
+(dimension, competitor) pair must have a cell, and every shortlisted problem a matrix (the stage
+writes one even when no competitor is confirmed), so a run where competitors never ran fails the
+check instead of passing it vacuously. The ``competitors`` stage enforces the cell rule when it
 writes a matrix; this check re-reads the stored rows, so a later edit or bug cannot slip through.
 """
 
@@ -11,7 +13,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from signalforge.db.models import Claim, Competitor, Excerpt, GapMatrix
+from signalforge.db.models import Claim, Competitor, Excerpt, GapMatrix, ProblemCluster
 from signalforge.evidence.entailment import failed
 
 UNKNOWN = "unknown"
@@ -53,7 +55,17 @@ def check_gap_matrices(session: Session, run_id: int) -> list[str]:
     }
     claims = {c.id: c for c in session.scalars(select(Claim).where(Claim.run_id == run_id))}
     excerpts = set(session.scalars(select(Excerpt.id).where(Excerpt.run_id == run_id)))
-    errors: list[str] = []
+    shortlisted = set(
+        session.scalars(
+            select(ProblemCluster.id).where(
+                ProblemCluster.run_id == run_id, ProblemCluster.shortlisted.is_(True)
+            )
+        )
+    )
+    if not matrices:
+        return [f"run {run_id} has no gap matrices; run competitors first"]
+    missing = sorted(shortlisted - {m.problem_id for m in matrices})
+    errors = [f"problem {p}: shortlisted but has no gap matrix" for p in missing]
     for m in matrices:
         matrix = m.matrix or {}
         dims = [d["key"] for d in matrix.get("dimensions", [])]

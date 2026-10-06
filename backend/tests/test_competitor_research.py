@@ -304,6 +304,26 @@ def test_exit_check_catches_a_bad_cell(db) -> None:
     assert any("no cell" in e for e in errors)
 
 
+def test_exit_check_fails_when_matrices_are_missing(db) -> None:
+    run_id = create_run(db, PLAN, PACK, DEFAULTS)
+    _seed(db, run_id)
+    with db() as session:  # competitors has not run: nothing passes vacuously
+        assert check_gap_matrices(session, run_id) == [
+            f"run {run_id} has no gap matrices; run competitors first"
+        ]
+    run_stage(_context(db, run_id, _llm()), Competitors())
+    with db.begin() as session:
+        late = ProblemCluster(run_id=run_id, name="Late", description="d", signal_ids=[],
+                              shortlisted=True, evidence_strength=5.0)  # fmt: skip
+        session.add(late)
+        session.flush()
+        late_id = late.id
+    with db() as session:
+        assert check_gap_matrices(session, run_id) == [
+            f"problem {late_id}: shortlisted but has no gap matrix"
+        ]
+
+
 def test_failed_entailment_demotes_a_cell() -> None:
     draft = GapMatrixDraft(
         dimensions=[],

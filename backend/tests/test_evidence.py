@@ -5,7 +5,13 @@ from datetime import UTC, datetime
 import pytest
 
 from signalforge.config import get_defaults
-from signalforge.evidence.independence import author_hash, same_author_groups, source_units
+from signalforge.evidence.documents import page_date
+from signalforge.evidence.independence import (
+    author_hash,
+    same_author_groups,
+    same_quote_groups,
+    source_units,
+)
 from signalforge.evidence.quotes import verify_quote
 from signalforge.evidence.strength import SignalRef, SourceDoc, evidence_strength
 from signalforge.text import normalize_with_map
@@ -106,6 +112,31 @@ def _docs(n: int, **kw: object) -> dict[int, SourceDoc]:
 def _strength(docs: dict[int, SourceDoc], units: dict[int, int] | None = None, first_hand=True):
     signals = [SignalRef(i, first_hand) for i in docs]
     return evidence_strength(signals, docs, units or {i: i for i in docs}, STRENGTH, NOW)
+
+
+def test_same_quote_groups_merge_sources_quoting_one_passage() -> None:
+    complaint = "Firmam tarafından gönderilen kargo alıcıya teslim edilmedi ve iade edilmedi."
+    groups = same_quote_groups(
+        {
+            1: {complaint},
+            2: {complaint.upper().replace(".", "!")},  # same words, other case / punctuation
+            3: {"kargo teslim edilmedi"},  # too short to identify one person's report
+            4: {"Kargo teslim edilmedi."},
+            5: set(),
+        },
+        min_words=8,
+    )
+    assert [(g.rule, g.document_ids) for g in groups] == [("same_quote", [1, 2])]
+    units = source_units([1, 2, 3, 4, 5], [g.document_ids for g in groups])
+    assert len(set(units.values())) == 4
+
+
+def test_page_dates_on_or_after_the_fetch_day_are_unknown() -> None:
+    fetched = datetime(2026, 10, 6, 18, 40, tzinfo=UTC)
+    assert page_date("2026-10-06T00:00:00", fetched) is None  # extraction's "today" fallback
+    assert page_date("2026-10-07", fetched) is None
+    assert page_date("2026-03-17", fetched) == datetime(2026, 3, 17, tzinfo=UTC)
+    assert page_date(None, fetched) is None and page_date("dün", fetched) is None
 
 
 def test_strength_grows_with_independent_sources_and_saturates() -> None:
