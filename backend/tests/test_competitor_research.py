@@ -33,8 +33,12 @@ from signalforge.evidence.gaps import check_gap_matrices
 from signalforge.pipeline.runner import create_run, run_stage
 from signalforge.pipeline.stages.competitors import (
     Competitors,
+    Found,
     amount_in_quote,
+    fill_localization,
+    language_quote,
     numbers_in,
+    probe_queries,
     same_product,
     same_site,
     validate_matrix,
@@ -50,6 +54,7 @@ PAGES = {
     "/logo-tiger-destek": "Logo Tiger destek ekibine ulaşmak çok zor, haftalardır cevap yok.",
     "/rota": "Rota Pro şoför uygulaması ile teslimat fotoğrafı alınır.",
     "/ghost-review": "Ghost uygulaması irsaliyeleri otomatik okuyor, çok memnunuz.",
+    "/fiyatlar": "Logo Tiger KOBİ paketi aylık 2.500,00 TL + KDV.",
 }
 HITS = [
     ("https://www.logo.com.tr/tiger", "Logo Tiger"),
@@ -63,7 +68,10 @@ class CompetitorSearch:
     name = "competitor-fake"
 
     def search(self, query: str, locale: SearchLocale, n: int) -> list[SearchHit]:
-        return [SearchHit(rank=i, url=u, title=t) for i, (u, t) in enumerate(HITS, 1)]
+        hits = HITS
+        if query.endswith("site:logo.com.tr"):  # a probe on Logo Tiger's own site
+            hits = [HITS[1], HITS[0], ("https://www.logo.com.tr/fiyatlar", "Fiyatlar")]
+        return [SearchHit(rank=i, url=u, title=t) for i, (u, t) in enumerate(hits, 1)]
 
 
 def _fact(kind: str, quote: str, statement: str, **kw) -> CompetitorFact:
@@ -84,6 +92,13 @@ def _facts(prompt_input: str) -> CompetitorPage:
                 _fact("integration", "e-İrsaliye entegrasyonu vardır.", "Integrates e-İrsaliye."),
                 _fact("feature", "Bu cümle sayfada yok.", "Invented."),  # not on the page
             ],
+        )  # fmt: skip
+    if url.endswith("/fiyatlar"):
+        return CompetitorPage(
+            competitor_name="Logo Tiger", product_url="https://www.logo.com.tr",
+            page_kind="own_site", segment=None, geo="turkey",
+            facts=[_fact("price", "KOBİ paketi aylık 2.500,00 TL + KDV.", "SMB plan: 2,500 TRY.",
+                         amount=2500.0, currency="TRY", period="month", plan_name="KOBİ")],
         )  # fmt: skip
     if url.endswith("/logo-tiger-destek"):
         return CompetitorPage(
@@ -212,9 +227,12 @@ def test_competitors_stage_builds_a_cited_gap_matrix(db) -> None:
     row = run_stage(ctx, Competitors())
     assert row.status == "completed", row.error
     m = row.metrics
-    assert (m["competitors"], m["pages_read"], m["prices"]) == (2, 4, 1)
-    assert (m["facts_verified"], m["facts_unverified"]) == (5, 1)
+    assert (m["competitors"], m["pages_read"], m["prices"]) == (2, 5, 2)
+    assert (m["facts_verified"], m["facts_unverified"]) == (6, 1)
     assert m["prices_without_amount_in_quote"] == 1
+    # Probes: price, e-documents, setup on both own sites. Only Logo's price probe finds a page
+    # the loop hadn't read (its pricing page); the review hit and the page already read are skipped.
+    assert (m["probe_searches"], m["localized"]) == (6, 2)
 
     with db() as session:
         competitors = {c.name: c for c in session.scalars(select(Competitor))}
@@ -231,18 +249,24 @@ def test_competitors_stage_builds_a_cited_gap_matrix(db) -> None:
     assert sorted(competitors) == ["Logo Tiger", "Rota Pro"]
     logo, rota = competitors["Logo Tiger"], competitors["Rota Pro"]
     assert (logo.url, logo.segment, logo.geo) == ("https://www.logo.com.tr", "KOBİ'ler", "turkey")
-    (price,) = logo.pricing
+    price, smb = logo.pricing
     assert (price["amount"], price["currency"], price["period"]) == (1250.0, "TRY", "month")
     assert price["observed_at"] and price["claim_id"] in {f.id for f in facts}
+    assert (smb["amount"], smb["plan_name"]) == (2500.0, "KOBİ")
     # The complaint page attached to Logo Tiger by name.
     logo_facts = [f for f in facts if f.meta["competitor_id"] == logo.id]
     assert sorted(f.meta["kind"] for f in logo_facts) == [
         "integration",
+        "localization",
+        "price",
         "price",
         "review_complaint",
     ]
-    assert len(docs) == 3 and all(d.problem_id == problem_id for d in docs)
-    assert len(queries) == 1 and queries[0].meta["problem_ids"] == [problem_id]
+    assert len(docs) == 4 and all(d.problem_id == problem_id for d in docs)
+    assert len(queries) == 7 and all(q.meta["problem_ids"] == [problem_id] for q in queries)
+    assert "fiyat OR fiyatlar OR fiyatlandırma OR paketler site:logo.com.tr" in {
+        q.text for q in queries
+    }
 
     # The M4 exit: every cell is a cited fact or unknown.
     assert errors == []
@@ -255,7 +279,12 @@ def test_competitors_stage_builds_a_cited_gap_matrix(db) -> None:
     assert cell("e_document_integration", rota) == {"value": "unknown", "claim_id": None}
     assert cell("driver_app", logo) == {"value": "unknown", "claim_id": None}
     assert cell("driver_app", rota)["value"] == "yes"
-    assert cell("turkish_localization", logo)["value"] == "unknown"  # never answered
+    # The model never answered localisation; both own sites are Turkish, so their facts do.
+    by_id = {f.id: f for f in facts}
+    for c in (logo, rota):
+        loc = cell("turkish_localization", c)
+        assert loc["value"] == "yes" and by_id[loc["claim_id"]].meta["kind"] == "localization"
+        assert by_id[loc["claim_id"]].meta["competitor_id"] == c.id
     assert row.metrics["demoted_cells"] == 2
     # Gaps: price (partial) and setup (no) have evidence and no "yes"; all-unknown columns don't.
     assert sorted(g["dimension"] for g in mx["gaps"]) == ["price_for_smb", "setup_effort"]
@@ -351,3 +380,46 @@ def test_names_and_sites() -> None:
     assert same_site("https://logo.com.tr/x", "logo.com.tr")
     assert not same_site("https://www.sikayetvar.com/logo", "https://www.logo.com.tr")
     assert not same_site("https://logo.com.tr", None)
+
+
+def test_probes_ask_every_own_site_for_price_first() -> None:
+    found = [
+        Found("Logo Tiger", "https://www.logo.com.tr", None, "turkey"),
+        Found("Complaints", "https://www.sikayetvar.com", None, "turkey"),  # a registry domain
+        Found("Rota Pro", "rota.com.tr", None, "turkey"),
+        Found("Logo Go", "logo.com.tr/go", None, "turkey"),  # same site as Logo Tiger
+        Found("No site", None, None, "unknown"),
+    ]
+    queries = probe_queries(found, PACK, CFG)
+    terms = PACK.competitor_probes
+    assert queries[:2] == [
+        (f"{terms['price_for_smb']} site:logo.com.tr", "logo.com.tr"),
+        (f"{terms['price_for_smb']} site:rota.com.tr", "rota.com.tr"),
+    ]
+    assert len(queries) == 2 * len(terms)  # turkish_localization has no search terms
+    capped = probe_queries(found, PACK, CFG.model_copy(update={"probe_max_searches": 3}))
+    assert capped == queries[:3]
+
+
+def test_language_quote_is_the_first_full_sentence() -> None:
+    text = "Fiyatlar. Aylık 1.250,00 TL + KDV ile filonuzu tek ekrandan izleyin ve yönetin. Son."
+    match = language_quote(text)
+    assert match is not None and text[match.char_start : match.char_end] == match.quote
+    assert match.quote == "Aylık 1.250,00 TL + KDV ile filonuzu tek ekrandan izleyin ve yönetin."
+    assert language_quote("Kısa. Çok kısa.") is None
+
+
+def test_localization_fills_only_unknown_cells() -> None:
+    draft = GapMatrixDraft(
+        dimensions=[],
+        cells=[GapCell(dimension="turkish_localization", competitor=2, value="no", claim=3)],
+    )
+    claim_no = {1: (10, 1), 2: (11, 1), 3: (12, 2), 4: (13, 2)}
+    m = validate_matrix(draft, 2, {}, claim_no, {}, CFG)
+    kinds = {1: "feature", 2: "localization", 3: "limitation", 4: "localization"}
+    fill_localization(m, kinds, claim_no, "turkish_localization")
+    assert m.cells["turkish_localization"] == {
+        1: {"value": "yes", "claim_no": 2},
+        2: {"value": "no", "claim_no": 3},  # the model's cited answer stands
+    }
+    assert m.notes["cells_from_site_language"] == 1

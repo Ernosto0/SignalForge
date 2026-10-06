@@ -73,6 +73,8 @@ class MarketPack(BaseModel):
     economics: list[EconomicReference]
     regulatory: Regulatory
     industries: dict[str, Industry]
+    # Gap-matrix dimension -> search terms for a product's own site (competitors stage).
+    competitor_probes: dict[str, str] = {}
 
     def source_for(self, domain: str) -> SourceEntry | None:
         """Registry entry for a domain or its closest listed parent domain."""
@@ -100,6 +102,7 @@ def load_pack(pack_id: str, packs_dir: Path | None = None) -> MarketPack:
     if not (root / "pack.yaml").is_file():
         raise FileNotFoundError(f"market pack {pack_id!r} not found in {root.parent}")
     industries = [Industry.model_validate(_read(p)) for p in sorted(root.glob("industries/*.yaml"))]
+    probes = root / "competitor_probes.yaml"
     return MarketPack.model_validate(
         {
             **_read(root / "pack.yaml"),
@@ -108,5 +111,6 @@ def load_pack(pack_id: str, packs_dir: Path | None = None) -> MarketPack:
             "economics": _read(root / "economics.yaml")["references"],
             "regulatory": _read(root / "regulatory.yaml"),
             "industries": {i.id: i for i in industries},
+            "competitor_probes": (_read(probes) or {}) if probes.is_file() else {},
         }
     )

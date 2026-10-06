@@ -20,6 +20,10 @@ Provider errors on a search are retried like the collection ``search`` stage's
 (``collect.search_retries``); the retries count as one search. An LLM error (``LLMError``) ends
 the loop with ``llm_error``; an unreachable provider (``LLMUnavailable``) stops the stage.
 
+A stage can add fixed searches the model did not choose (:func:`probe`, e.g. a product's pricing
+page on its own site) to a finished loop's trace; they are recorded like the loop's own, with
+step 0, and never re-read a page the loop read.
+
 The loop never writes to the database: it returns a :class:`LoopTrace`, and the stage persists
 queries and results (:func:`store_searches`), documents and evidence afterwards (one writer, no
 races between problems running in parallel). The model's input is a pure function of the goal and
@@ -121,6 +125,7 @@ class LoopTrace:
     actions: list[dict[str, Any]] = field(default_factory=list)  # every action, with its outcome
     rejections: Counter[str] = field(default_factory=Counter)
     llm_cache_hits: int = 0
+    read_urls: set[str] = field(default_factory=set)  # canonical URLs fetched (or tried)
 
     def summary(self) -> dict[str, Any]:
         """Compact, JSON-safe record for StageRun metrics and ProblemCluster.verification."""
@@ -141,6 +146,14 @@ class LoopTrace:
 class _Observation:
     full: str
     short: str
+
+
+@dataclass(frozen=True)
+class _Unread:
+    """A hit that could not be read: ``outcome`` for the action record, ``note`` for the model."""
+
+    outcome: str
+    note: str
 
 
 # Agent-specific processing of a page the loop read; returns a one-line note the model sees
@@ -194,6 +207,50 @@ def render_input(
     )
 
 
+def _make_hit(
+    ctx: RunContext, h: SearchHit, hit_id: int, hint: str | None, known_urls: Collection[str]
+) -> LoopHit:
+    canonical = canonicalize_url(h.url)
+    domain = domain_of(h.url)
+    source = ctx.pack.source_for(domain)
+    return LoopHit(
+        id=hit_id,
+        rank=h.rank,
+        url=h.url,
+        canonical_url=canonical,
+        domain=domain,
+        title=h.title,
+        snippet=h.snippet,
+        date=h.date,
+        category=source.category if source else None,
+        tier=source.tier if source else ctx.pack.default_tier,
+        access=source.access if source else "fetch",
+        off_site=bool(hint) and not in_domain(domain, hint),
+        known=canonical in known_urls,
+    )
+
+
+def _read(
+    ctx: RunContext, hit: LoopHit, step: int, trace: LoopTrace, known_urls: Collection[str]
+) -> LoopPage | _Unread:
+    """Read one hit: download it, or use its snippet on a ``snippet_only`` domain."""
+    trace.read_urls.add(hit.canonical_url)
+    if hit.access == SNIPPET_ONLY:
+        text = "\n".join(t for t in (hit.title, hit.snippet) if t)
+        return LoopPage(step, hit, None, text, "snippet")
+    page = ctx.fetcher.fetch(hit.url)
+    if page.status is not FetchStatus.OK or not page.text:
+        trace.failed_fetches.append({"step": step, "url": hit.url, "status": page.status.value})
+        status = page.status.value
+        return _Unread(f"fetch failed: {status}", f"failed ({status})")
+    final = canonicalize_url(page.final_url or hit.url)
+    if final != hit.canonical_url and (final in known_urls or final in trace.read_urls):
+        trace.rejections["duplicate_url"] += 1
+        return _Unread("redirected to a known page", "redirected to a page already read")
+    trace.read_urls.add(final)
+    return LoopPage(step, hit, page, page.text, "text")
+
+
 def run_loop(
     ctx: RunContext,
     *,
@@ -211,7 +268,6 @@ def run_loop(
     trace = LoopTrace()
     observations: list[_Observation] = []
     hits: dict[int, LoopHit] = {}
-    seen_urls: set[str] = set()
     deduper = Deduper(ctx.defaults.query_gen.near_dup_ratio)
     query_cfg = ctx.defaults.query_gen
     locale = ctx.pack.search
@@ -303,24 +359,7 @@ def run_loop(
                 continue
             found = []
             for h in response.hits:
-                canonical = canonicalize_url(h.url)
-                domain = domain_of(h.url)
-                source = ctx.pack.source_for(domain)
-                hit = LoopHit(
-                    id=len(hits) + 1,
-                    rank=h.rank,
-                    url=h.url,
-                    canonical_url=canonical,
-                    domain=domain,
-                    title=h.title,
-                    snippet=h.snippet,
-                    date=h.date,
-                    category=source.category if source else None,
-                    tier=source.tier if source else ctx.pack.default_tier,
-                    access=source.access if source else "fetch",
-                    off_site=bool(hint) and not in_domain(domain, hint),
-                    known=canonical in known_urls,
-                )
+                hit = _make_hit(ctx, h, len(hits) + 1, hint, known_urls)
                 hits[hit.id] = hit
                 found.append(hit)
             trace.searches.append(LoopSearch(step, query, found, response.cache_hit))
@@ -343,32 +382,16 @@ def run_loop(
         if hit.known:
             reject(step, action, "known_url")
             continue
-        if hit.canonical_url in seen_urls:
+        if hit.canonical_url in trace.read_urls:
             reject(step, action, "duplicate_url")
             continue
-        seen_urls.add(hit.canonical_url)
         fetches_left -= 1
         rejected_in_row = 0
-        if hit.access == SNIPPET_ONLY:
-            text = "\n".join(t for t in (hit.title, hit.snippet) if t)
-            read = LoopPage(step, hit, None, text, "snippet")
-        else:
-            page = ctx.fetcher.fetch(hit.url)
-            if page.status is not FetchStatus.OK or not page.text:
-                trace.failed_fetches.append(
-                    {"step": step, "url": hit.url, "status": page.status.value}
-                )
-                trace.actions[-1]["outcome"] = f"fetch failed: {page.status.value}"
-                observe(f"step {step}: fetch [h{hit.id}] → failed ({page.status.value})")
-                continue
-            final = canonicalize_url(page.final_url or hit.url)
-            if final != hit.canonical_url and (final in known_urls or final in seen_urls):
-                trace.rejections["duplicate_url"] += 1
-                trace.actions[-1]["outcome"] = "redirected to a known page"
-                observe(f"step {step}: fetch [h{hit.id}] → redirected to a page already read")
-                continue
-            seen_urls.add(final)
-            read = LoopPage(step, hit, page, page.text, "text")
+        read = _read(ctx, hit, step, trace, known_urls)
+        if isinstance(read, _Unread):
+            trace.actions[-1]["outcome"] = read.outcome
+            observe(f"step {step}: fetch [h{hit.id}] → {read.note}")
+            continue
         trace.pages.append(read)
         note = on_page(read)
         trace.actions[-1]["outcome"] = note
@@ -377,6 +400,54 @@ def run_loop(
         observe(f"{head}\n  title: {hit.title or ''}\n  text: {preview}", head)
 
     return trace
+
+
+def probe(
+    ctx: RunContext,
+    trace: LoopTrace,
+    *,
+    query: str,
+    domain: str,
+    reads: int,
+    known_urls: Collection[str],
+    on_page: OnPage,
+) -> str:
+    """A fixed search after a loop: search ``query`` as written (a ``site:`` included), then read
+    up to ``reads`` of its hits on ``domain`` that the loop has not read. Recorded in ``trace``
+    with step 0; returns the outcome."""
+    action: dict[str, Any] = {"step": 0, "action": "probe", "query": query}
+    trace.actions.append(action)
+    try:
+        response, _ = search_with_retries(
+            ctx.search,
+            query,
+            ctx.pack.search,
+            ctx.defaults.search.results_per_query,
+            ctx.defaults.collect.search_retries,
+        )
+    except SearchError as exc:
+        trace.searches.append(LoopSearch(0, query, [], False, str(exc)))
+        action["outcome"] = "search_error"
+        return action["outcome"]
+    first_id = sum(len(s.hits) for s in trace.searches) + 1
+    found = [
+        _make_hit(ctx, h, first_id + i, domain, known_urls) for i, h in enumerate(response.hits)
+    ]
+    trace.searches.append(LoopSearch(0, query, found, response.cache_hit))
+    notes = []
+    for hit in found:
+        if len(notes) >= reads:
+            break
+        if hit.off_site or hit.known or hit.canonical_url in trace.read_urls:
+            continue
+        read = _read(ctx, hit, 0, trace, known_urls)
+        if isinstance(read, _Unread):
+            notes.append(read.outcome)
+            continue
+        trace.pages.append(read)
+        notes.append(on_page(read))
+    action["outcome"] = "; ".join(notes) or f"{len(found)} hits, none new on {domain}"
+    return action["outcome"]
 
 
 def _describe(action: LoopAction) -> str:

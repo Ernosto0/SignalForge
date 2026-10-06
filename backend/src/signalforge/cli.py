@@ -357,7 +357,9 @@ def _stage_line(row: StageRun) -> str:
         ),
         "competitors": lambda: (
             f"{m['competitors']} competitors for {m['problems']} problems  ·  "
-            f"{m['facts_verified']} facts ({m['prices']} prices)  ·  cells "
+            f"{m['searches']} searches ({m.get('probe_searches', 0)} on own sites)  ·  "
+            f"{m['facts_verified']} facts ({m['prices']} prices, "
+            f"{m.get('localized', 0)} site languages)  ·  cells "
             + _counts_text(m["cells"], ("yes", "partial", "no", "unknown"))
             + f"  ·  {m['demoted_cells']} demoted, {m['gaps']} gaps"
         ),

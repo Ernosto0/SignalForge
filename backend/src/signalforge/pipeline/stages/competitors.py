@@ -6,18 +6,26 @@ Per shortlisted problem (after verify):
    knows of. Names are search seeds only.
 2. **Loop.** A bounded search/fetch loop (agents/loop.py) reads each product's own pages (home,
    pricing, features) and review / complaint pages.
-3. **Page facts.** Each page read goes through ``competitor_facts``. Every fact's quote is verified
+3. **Probes.** The loop's ``site:`` hints only cover registry domains, so it rarely reaches a
+   pricing or integration page. After it, every product confirmed so far gets fixed searches on
+   its own site, one per ``always_dimensions`` entry with terms in the market pack
+   (``competitor_probes``), price for every product first; the best unread hit is read.
+4. **Page facts.** Each page read goes through ``competitor_facts``. Every fact's quote is verified
    against the page text (evidence/quotes.py); a price also needs its amount inside the quote.
-4. **Competitors.** A product becomes a competitor only through a page on its **own** website
+5. **Competitors.** A product becomes a competitor only through a page on its **own** website
    (the page's domain matches the ``product_url`` it names). Review and complaint pages attach by
    Turkish-aware name match; facts about products never confirmed on their own site are dropped.
    Facts are stored as fact claims with ``meta.competitor_id``, prices also in
-   ``Competitor.pricing`` with the date they were observed (never converted here).
-5. **Gap matrix.** The analysis model derives dimensions from the problem's signals (plus the
+   ``Competitor.pricing`` with the date they were observed (never converted here). A product
+   whose own site reads in the market's language also gets a ``localization`` fact quoting a
+   sentence of that page.
+6. **Gap matrix.** The analysis model derives dimensions from the problem's signals (plus the
    configured ``always_dimensions``) and fills one cell per dimension × competitor, citing claims
    by number. Every cell that does not cite a fact of *that* competitor which passed entailment is
-   demoted to ``unknown`` (evidence/gaps.py re-checks stored matrices: the M4 exit).
-6. **Gaps.** A dimension where no competitor is ``yes`` and at least one cell is known becomes an
+   demoted to ``unknown`` (evidence/gaps.py re-checks stored matrices: the M4 exit). A
+   ``localization_dimension`` cell left ``unknown`` becomes ``yes`` from the ``localization``
+   fact.
+7. **Gaps.** A dimension where no competitor is ``yes`` and at least one cell is known becomes an
    inference claim, derived from those cells' claims.
 """
 
@@ -32,7 +40,7 @@ from typing import Any
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from signalforge.agents.loop import LoopPage, LoopTrace, run_loop, store_searches
+from signalforge.agents.loop import LoopPage, LoopTrace, probe, run_loop, store_searches
 from signalforge.config import CompetitorsDefaults
 from signalforge.db.models import (
     Claim,
@@ -73,6 +81,9 @@ from signalforge.text import match_tokens
 
 STAGE = "competitors"
 _NUMBER = re.compile(r"\d[\d.,]*\d|\d")
+_SENTENCE = re.compile(r"(?:[^.!?\n]|\.(?=\d))+[.!?]?")  # "1.250,00 TL" stays one sentence
+LOCALIZATION = "localization"  # fact kind: the product's own site is in the market's language
+LANGUAGE_NAMES = {"tr": "Turkish", "en": "English"}
 
 
 @dataclass(frozen=True)
@@ -135,6 +146,7 @@ class Stored:
     competitors: list[tuple[int, str, str | None]] = field(default_factory=list)  # id, name, seg
     claims: dict[int, list[ClaimView]] = field(default_factory=dict)  # competitor id -> claims
     prices: int = 0
+    localized: int = 0  # competitors with a localization fact
 
 
 # --- pure steps -----------------------------------------------------------------------------
@@ -153,14 +165,52 @@ def same_product(a: str, b: str) -> bool:
     return ka == kb or long.startswith(f"{short} ")
 
 
-def same_site(page_url: str, product_url: str | None) -> bool:
-    """The page is on the product's own website (same domain or a subdomain either way)."""
+def own_domain(product_url: str | None) -> str:
+    """The domain of a product's own website ("" when unknown)."""
     if not product_url:
-        return False
+        return ""
     if "://" not in product_url:
         product_url = f"https://{product_url}"
-    page, own = domain_of(page_url), domain_of(product_url)
+    return domain_of(product_url)
+
+
+def same_site(page_url: str, product_url: str | None) -> bool:
+    """The page is on the product's own website (same domain or a subdomain either way)."""
+    page, own = domain_of(page_url), own_domain(product_url)
     return bool(own) and (in_domain(page, own) or in_domain(own, page))
+
+
+def probe_queries(
+    found: list["Found"], pack: MarketPack, cfg: CompetitorsDefaults
+) -> list[tuple[str, str]]:
+    """``(query, domain)`` searches on confirmed products' own sites, one per fixed dimension with
+    pack search terms: dimension by dimension (price for every product first), at most
+    ``probe_max_searches``. A registry domain named as a product's site (a review or complaint
+    site) is skipped."""
+    domains: list[str] = []
+    for f in found:
+        domain = own_domain(f.url)
+        if domain and pack.source_for(domain) is None and domain not in domains:
+            domains.append(domain)
+    queries = [
+        (f"{terms} site:{domain}", domain)
+        for key in cfg.always_dimensions
+        if (terms := pack.competitor_probes.get(key))
+        for domain in domains
+    ]
+    return queries[: cfg.probe_max_searches]
+
+
+def language_quote(text: str, min_words: int = 8, max_words: int = 40) -> QuoteMatch | None:
+    """The first full sentence of a page (``min_words``–``max_words`` words): the quote that shows
+    the page's language."""
+    for m in _SENTENCE.finditer(text):
+        raw = m.group()
+        start = m.start() + len(raw) - len(raw.lstrip())
+        end = m.end() - (len(raw) - len(raw.rstrip()))
+        if min_words <= len(text[start:end].split()) <= max_words:
+            return QuoteMatch("exact", start, end, text[start:end], 100.0)
+    return None
 
 
 def numbers_in(text: str) -> set[float]:
@@ -359,6 +409,21 @@ def validate_matrix(
     return Matrix(dims, cells, notes)
 
 
+def fill_localization(
+    matrix: Matrix, claim_kinds: dict[int, str], claim_no: dict[int, tuple[int, int]], key: str
+) -> None:
+    """Cells of the ``key`` dimension the model left ``unknown`` become ``yes``, citing the
+    competitor's ``localization`` fact (its own site is in the market's language).
+    ``claim_kinds`` maps claim numbers to fact kinds."""
+    row = matrix.cells.get(key)
+    if row is None:
+        return
+    for n, (_, c_no) in claim_no.items():
+        if claim_kinds.get(n) == LOCALIZATION and row[c_no]["value"] == UNKNOWN:
+            row[c_no] = {"value": "yes", "claim_no": n}
+            matrix.notes["cells_from_site_language"] += 1
+
+
 def cited_claims(draft: GapMatrixDraft, claim_no: dict[int, tuple[int, int]]) -> list[int]:
     """Database ids of the claims non-unknown cells cite (for entailment before validation)."""
     return sorted(
@@ -418,9 +483,14 @@ def write_round(
     r: Round,
     found: list[Found],
     pack: MarketPack,
+    *,
+    localization: bool,
 ) -> Stored:
+    """Competitors, their pages and fact claims; with ``localization``, also a ``localization``
+    fact from the first own-site page whose text is in the market's language."""
     stored = Stored()
     now = datetime.now(UTC)
+    language = LANGUAGE_NAMES.get(pack.language, pack.language)
     for f in found:
         competitor = Competitor(
             run_id=run_id,
@@ -435,6 +505,7 @@ def write_round(
         session.flush()
         claims: list[ClaimView] = []
         pricing: list[dict[str, Any]] = []
+        localized = not localization
         for pf in f.pages:
             page = pf.page
             doc = (
@@ -445,6 +516,35 @@ def write_round(
             doc, _ = store_document(
                 session, run_id, doc, origin="competitor", problem_id=r.target.id
             )
+            if (
+                not localized
+                and page.page is not None
+                and doc.lang == pack.language
+                and same_site(page.url, f.url)
+                and (match := language_quote(page.text)) is not None
+            ):
+                localized = True
+                stored.localized += 1
+                excerpt = write_excerpt(
+                    session, run_id, doc.id, page.source, match, None, stage=STAGE
+                )
+                statement = (
+                    f"{f.name}'s own website ({doc.domain}) presents the product in {language}."
+                )
+                claim = add_fact(
+                    session,
+                    run_id,
+                    statement,
+                    [excerpt.id],
+                    stage=STAGE,
+                    meta={
+                        "competitor_id": competitor.id,
+                        "kind": LOCALIZATION,
+                        "page_kind": "own_site",
+                        "page_language": doc.lang,
+                    },
+                )
+                claims.append(ClaimView(claim.id, LOCALIZATION, statement))
             for fact, match in pf.facts:
                 excerpt = write_excerpt(
                     session, run_id, doc.id, page.source, match, fact.translation, stage=STAGE
@@ -564,19 +664,30 @@ def loop_goal(
         "products_named_in_evidence": seeds.from_signals,
         "products_suggested_unverified": seeds.suggested[: cfg.model_seed_names],
         "max_products": cfg.max_competitors,
+        "comparison_rows": [humanize(k) for k in cfg.always_dimensions],
         "tasks": [
             "For each product, read a page on its own website (home or product page), its "
             "pricing page if any, a feature page about this workflow, and one user review or "
             "complaint page.",
+            "Prefer pages that answer the comparison rows for a product (its prices, its "
+            "integrations, its setup) over another complaint about it.",
             "Also search for the workflow itself to find products not listed here.",
         ],
     }
     return json.dumps(goal, ensure_ascii=False, indent=1)
 
 
-def facts_input(target: Target, known: list[str], page: LoopPage, text: str, max_facts: int) -> str:
+def facts_input(
+    target: Target,
+    known: list[str],
+    page: LoopPage,
+    text: str,
+    max_facts: int,
+    rows: list[str],
+) -> str:
     head = {
         "problem": {"name": target.name, "description": target.description},
+        "comparison_rows": [humanize(k) for k in rows],
         "known_products": known,
         "max_facts": max_facts,
     }
@@ -632,7 +743,14 @@ class Competitors:
                     data = ctx.llm.parse(
                         ModelTier.FAST,
                         prompts["competitor_facts"],
-                        facts_input(target, known, page, text, cfg.max_facts_per_page),
+                        facts_input(
+                            target,
+                            known,
+                            page,
+                            text,
+                            cfg.max_facts_per_page,
+                            cfg.always_dimensions,
+                        ),  # fmt: skip
                         CompetitorPage,
                         stage=self.name,
                         max_output_tokens=cfg.max_output_tokens,
@@ -660,6 +778,17 @@ class Competitors:
                 known_queries=known_queries,
                 on_page=on_page,
             )
+            found, _ = resolve(r.pages, cfg.max_competitors)
+            for query, domain in probe_queries(found, ctx.pack, cfg):
+                probe(
+                    ctx,
+                    r.trace,
+                    query=query,
+                    domain=domain,
+                    reads=cfg.probe_reads,
+                    known_urls=(),
+                    on_page=on_page,
+                )
             return r
 
         with ThreadPoolExecutor(max_workers=max(cfg.concurrency, 1)) as pool:
@@ -679,7 +808,10 @@ class Competitors:
             for r in rounds:
                 found, notes = resolve(r.pages, cfg.max_competitors)
                 resolved[r.target.id] = notes
-                stored[r.target.id] = write_round(session, ctx.run_id, r, found, ctx.pack)
+                stored[r.target.id] = write_round(
+                    session, ctx.run_id, r, found, ctx.pack,
+                    localization=cfg.localization_dimension is not None,
+                )  # fmt: skip
 
         # Matrix drafts (in parallel), entailment of the cited claims, then validation.
         inputs = {
@@ -734,6 +866,14 @@ class Competitors:
                 d = drafts[t.id] or GapMatrixDraft(dimensions=[], cells=[])
                 claim_ok = {n: not failed(verdicts.get(cid)) for n, (cid, _) in claim_no.items()}
                 matrix = validate_matrix(d, len(s.competitors), signal_no, claim_no, claim_ok, cfg)
+                if cfg.localization_dimension:
+                    kinds = {c.id: c.kind for cs in s.claims.values() for c in cs}
+                    fill_localization(
+                        matrix,
+                        {n: kinds[cid] for n, (cid, _) in claim_no.items()},
+                        claim_no,
+                        cfg.localization_dimension,
+                    )
                 gaps = write_matrix(session, ctx.run_id, t, s, matrix, claim_no)
                 values = Counter(c["value"] for row in matrix.cells.values() for c in row.values())
                 per_problem.append(
@@ -744,10 +884,12 @@ class Competitors:
                         "seeds_suggested": len(r.seeds.suggested),
                         "stop_reason": r.trace.stop_reason,
                         "searches": len(r.trace.searches),
+                        "probe_searches": sum(a["action"] == "probe" for a in r.trace.actions),
                         "pages_read": len(r.trace.pages),
                         "competitors": len(s.competitors),
-                        "facts_verified": sum(len(c) for c in s.claims.values()),
+                        "facts_verified": sum(len(c) for c in s.claims.values()) - s.localized,
                         "prices": s.prices,
+                        "localized": s.localized,
                         "matrix_drafted": drafts[t.id] is not None,
                         "cells": dict(values),
                         "demoted": sum(
@@ -764,6 +906,7 @@ class Competitors:
                 "targets": [(t.id, [s.id for s in t.signals]) for t in targets],
                 "plan": plan.model_dump(mode="json"),
                 "config": cfg.model_dump(mode="json"),
+                "probes": ctx.pack.competitor_probes,
                 "prompts": [p.ref for p in prompts.values()],
             }
         )
@@ -786,6 +929,8 @@ def competitor_metrics(
         "competitors": sum(p["competitors"] for p in per_problem),
         "pages_read": sum(p["pages_read"] for p in per_problem),
         "searches": sum(p["searches"] for p in per_problem),
+        "probe_searches": sum(p["probe_searches"] for p in per_problem),
+        "localized": sum(p["localized"] for p in per_problem),
         "facts_proposed": notes["facts_proposed"],
         "facts_verified": notes["facts_verified"],
         "facts_unverified": notes["facts_unverified"],

@@ -1,0 +1,7 @@
+# Searches the competitors stage runs on each confirmed product's own website after its research
+# loop, one per fixed gap-matrix dimension (config `competitors.always_dimensions`), sent as
+# "<terms> site:<product domain>"; the best unread hit on that site is read for facts. A dimension
+# not listed here gets no search (turkish_localization is read from the site's own language).
+price_for_smb: "fiyat OR fiyatlar OR fiyatlandırma OR paketler"
+e_document_integration: "e-fatura OR e-irsaliye OR e-arşiv OR entegrasyon"
+setup_effort: "kurulum OR başlangıç OR eğitim OR destek"

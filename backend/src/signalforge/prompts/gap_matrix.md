@@ -1,6 +1,6 @@
 ---
 id: gap_matrix
-version: 1
+version: 2
 ---
 You build a comparison matrix between one business problem and the products that already address
 it. The input has the problem, its evidence signals (numbered), the fixed dimensions that always
@@ -21,6 +21,13 @@ and from reviews).
      silent. Never infer from what similar products usually do.
    `claim` is the number of the one claim that shows the value (it must be listed under that same
    product), or null for `unknown`.
+
+   The fixed dimensions ask what a small business needs: a published price it can afford
+   (`price_for_smb`; a plan price for a small business shows `yes` or `no`, prices only on
+   request show `partial`), the market's language (a `localization` claim shows `yes`),
+   integration with e-documents (e-Fatura, e-İrsaliye, e-Arşiv), and a quick setup it can do
+   itself (`setup_effort`; installation by the vendor's technicians or a long onboarding is
+   `partial`).
 
 Every non-`unknown` cell is checked: a cell citing a missing claim, or another product's claim,
 is turned into `unknown`.

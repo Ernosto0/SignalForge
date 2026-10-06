@@ -196,6 +196,12 @@ class CompetitorsDefaults(LoopDefaults):
     model_seed_names: int
     source_categories: list[str]
     always_dimensions: list[str]
+    # After the loop: searches on confirmed products' own sites for the fixed dimensions (search
+    # terms from the pack's competitor_probes), per problem, and hits read per search.
+    probe_max_searches: int
+    probe_reads: int
+    # Fixed dimension answered by the language of a product's own site (null: none).
+    localization_dimension: str | None
     max_signal_dimensions: int
     max_facts_per_page: int
     fact_chars: int  # page text read by the facts call

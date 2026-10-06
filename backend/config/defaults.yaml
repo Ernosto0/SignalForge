@@ -203,6 +203,14 @@ competitors:
   max_output_tokens: 3000
   source_categories: [complaints, reviews, forum]
   always_dimensions: [price_for_smb, turkish_localization, e_document_integration, setup_effort]
+  # The loop rarely reaches pricing or integration pages (its `site:` hints only cover registry
+  # domains). After it, each confirmed product's own site is searched once per fixed dimension
+  # (terms: market pack competitor_probes.yaml), price first for every product, then the next
+  # dimension; at most this many searches per problem, on top of max_searches.
+  probe_max_searches: 8
+  probe_reads: 1
+  # A product whose own site is in the market's language gets this cell from that page.
+  localization_dimension: turkish_localization
   max_signal_dimensions: 6
   max_facts_per_page: 12
   fact_chars: 12000
