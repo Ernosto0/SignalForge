@@ -78,9 +78,11 @@ query_gen:
 # --- M2 collection: search → triage → fetch → dedupe (plan §4) ------------------------------
 
 collect:
-  # SerpApi calls in flight. Results are cached, so reruns of later stages cost no searches.
+  # Search calls in flight (Serper's free plan allows 5/s). Results are cached, so reruns of
+  # later stages cost no searches.
   search_concurrency: 4
-  # Retries per query on provider errors/timeouts (SerpApi timed out ~1 in 15 calls at 30 s).
+  # Retries per query on provider errors/timeouts. Each attempt may cost a credit. SerpApi timed
+  # out ~1 in 15 calls at 30 s; Serper had 0 failures in 192 calls (2026-10-07).
   search_retries: 2
 
 triage:

@@ -201,16 +201,29 @@ def probe_queries(
     return queries[: cfg.probe_max_searches]
 
 
-def language_quote(text: str, min_words: int = 8, max_words: int = 40) -> QuoteMatch | None:
-    """The first full sentence of a page (``min_words``–``max_words`` words): the quote that shows
-    the page's language."""
+def language_quote(
+    text: str, name: str | None = None, min_words: int = 8, max_words: int = 40
+) -> QuoteMatch | None:
+    """A full sentence of a page (``min_words``–``max_words`` words): the quote that shows the
+    page's language. The first sentence naming the product (``name``, Turkish-aware) wins, so
+    entailment can tie the quote to the product; otherwise the first sentence."""
+    name_tokens = match_tokens(name) if name else []
+    first: QuoteMatch | None = None
     for m in _SENTENCE.finditer(text):
         raw = m.group()
         start = m.start() + len(raw) - len(raw.lstrip())
         end = m.end() - (len(raw) - len(raw.rstrip()))
-        if min_words <= len(text[start:end].split()) <= max_words:
-            return QuoteMatch("exact", start, end, text[start:end], 100.0)
-    return None
+        if not min_words <= len(text[start:end].split()) <= max_words:
+            continue
+        match = QuoteMatch("exact", start, end, text[start:end], 100.0)
+        if not name_tokens or _contains_run(match_tokens(match.quote), name_tokens):
+            return match
+        first = first or match
+    return first
+
+
+def _contains_run(tokens: list[str], run: list[str]) -> bool:
+    return any(tokens[i : i + len(run)] == run for i in range(len(tokens) - len(run) + 1))
 
 
 def numbers_in(text: str) -> set[float]:
@@ -410,16 +423,25 @@ def validate_matrix(
 
 
 def fill_localization(
-    matrix: Matrix, claim_kinds: dict[int, str], claim_no: dict[int, tuple[int, int]], key: str
+    matrix: Matrix,
+    claim_kinds: dict[int, str],
+    claim_no: dict[int, tuple[int, int]],
+    claim_ok: dict[int, bool],
+    key: str,
 ) -> None:
     """Cells of the ``key`` dimension the model left ``unknown`` become ``yes``, citing the
     competitor's ``localization`` fact (its own site is in the market's language).
-    ``claim_kinds`` maps claim numbers to fact kinds."""
+    ``claim_kinds`` maps claim numbers to fact kinds; a fact that failed entailment
+    (``claim_ok``, as in :func:`validate_matrix`) is never cited."""
     row = matrix.cells.get(key)
     if row is None:
         return
     for n, (_, c_no) in claim_no.items():
-        if claim_kinds.get(n) == LOCALIZATION and row[c_no]["value"] == UNKNOWN:
+        if (
+            claim_kinds.get(n) == LOCALIZATION
+            and claim_ok.get(n, True)
+            and row[c_no]["value"] == UNKNOWN
+        ):
             row[c_no] = {"value": "yes", "claim_no": n}
             matrix.notes["cells_from_site_language"] += 1
 
@@ -521,7 +543,7 @@ def write_round(
                 and page.page is not None
                 and doc.lang == pack.language
                 and same_site(page.url, f.url)
-                and (match := language_quote(page.text)) is not None
+                and (match := language_quote(page.text, f.name)) is not None
             ):
                 localized = True
                 stored.localized += 1
@@ -872,6 +894,7 @@ class Competitors:
                         matrix,
                         {n: kinds[cid] for n, (cid, _) in claim_no.items()},
                         claim_no,
+                        claim_ok,
                         cfg.localization_dimension,
                     )
                 gaps = write_matrix(session, ctx.run_id, t, s, matrix, claim_no)

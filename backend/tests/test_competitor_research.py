@@ -409,6 +409,16 @@ def test_language_quote_is_the_first_full_sentence() -> None:
     assert language_quote("Kısa. Çok kısa.") is None
 
 
+def test_language_quote_prefers_a_sentence_naming_the_product() -> None:
+    text = (
+        "Depo operasyonlarınızı raflardan sevkiyata kadar tek ekrandan kolayca yönetin. "
+        "DİA'nın depo modülü stok hareketlerini ve evrakları otomatik olarak takip eder."
+    )
+    assert language_quote(text, "Dia").quote.startswith("DİA'nın depo modülü")
+    # No sentence names the product: the first full sentence, as before.
+    assert language_quote(text, "Mikro").quote.startswith("Depo operasyonlarınızı")
+
+
 def test_localization_fills_only_unknown_cells() -> None:
     draft = GapMatrixDraft(
         dimensions=[],
@@ -417,9 +427,26 @@ def test_localization_fills_only_unknown_cells() -> None:
     claim_no = {1: (10, 1), 2: (11, 1), 3: (12, 2), 4: (13, 2)}
     m = validate_matrix(draft, 2, {}, claim_no, {}, CFG)
     kinds = {1: "feature", 2: "localization", 3: "limitation", 4: "localization"}
-    fill_localization(m, kinds, claim_no, "turkish_localization")
+    fill_localization(m, kinds, claim_no, {}, "turkish_localization")
     assert m.cells["turkish_localization"] == {
         1: {"value": "yes", "claim_no": 2},
         2: {"value": "no", "claim_no": 3},  # the model's cited answer stands
     }
     assert m.notes["cells_from_site_language"] == 1
+
+
+def test_localization_never_cites_a_fact_that_failed_entailment() -> None:
+    draft = GapMatrixDraft(
+        dimensions=[],
+        cells=[GapCell(dimension="turkish_localization", competitor=1, value="yes", claim=1)],
+    )
+    claim_no = {1: (10, 1), 2: (11, 2)}
+    claim_ok = {1: False, 2: True}  # competitor 1's localization fact failed entailment
+    m = validate_matrix(draft, 2, {}, claim_no, claim_ok, CFG)
+    fill_localization(
+        m, {1: "localization", 2: "localization"}, claim_no, claim_ok, "turkish_localization"
+    )
+    assert m.cells["turkish_localization"] == {
+        1: {"value": "unknown", "claim_no": None},  # demoted, and not refilled from the same fact
+        2: {"value": "yes", "claim_no": 2},
+    }

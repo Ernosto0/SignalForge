@@ -22,7 +22,10 @@ sources:
   - { domain: und.org.tr, category: association, tier: high, access: fetch,
       notes: "International road transport association: circulars, carriers' problems at borders" }
   # --- medium: job postings, complaints, reviews, forums
-  - { domain: kariyer.net, category: jobs, tier: medium, access: fetch,
+  # snippet_only since 2026-10-07: job-ad pages return HTTP 403 to our user agent (29 of 29 fetches
+  # in run #4, 21 in run #5), but the SERP snippets still list the duties being paid for
+  # (e.g. "CMR belgelerini hazırlamak ve kontrol etmek"). `notes` feeds the query_gen prompt.
+  - { domain: kariyer.net, category: jobs, tier: medium, access: snippet_only,
       notes: "Largest job board; job-ad pages with duty lists are indexed (verified 2026-10-05)" }
   - { domain: secretcv.com, category: jobs, tier: medium, access: fetch }
   - { domain: yenibiris.com, category: jobs, tier: medium, access: fetch }
