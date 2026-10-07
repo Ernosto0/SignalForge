@@ -43,7 +43,8 @@ from signalforge.providers.llm import LLMError
 
 DEFAULTS = get_defaults()
 EXTRACT = DEFAULTS.extract
-CLUSTER = DEFAULTS.cluster
+# Single-call clustering without the second merge look, unless a test turns it on.
+CLUSTER = DEFAULTS.cluster.model_copy(update={"merge_pass": False})
 ROAD, CUSTOMS = "Road freight", "Customs brokerage"
 
 
@@ -345,6 +346,47 @@ def test_large_runs_are_clustered_in_parts_by_submarket_and_merged() -> None:
     assert [(d.name, d.signal_ids) for d in result.clusters] == [("merged", [1, 3, 4, 5, 6, 7, 8])]
     assert result.noise == [2, 9]
     assert ask.asked == ["cluster", "cluster", "cluster_merge"]
+
+
+def test_merge_pass_joins_clusters_of_one_call() -> None:
+    cfg = CLUSTER.model_copy(update={"merge_pass": True})
+
+    def cluster(prompt_input: str) -> ClusterBatch:
+        return ClusterBatch(
+            clusters=[
+                ClusterDraft(name="wrong locations", description="", signal_ids=[1, 2]),
+                ClusterDraft(name="frozen app", description="", signal_ids=[3, 4]),
+                ClusterDraft(name="customs paperwork", description="", signal_ids=[5, 6]),
+            ],
+            noise=[7],
+        )
+
+    def merge(prompt_input: str) -> MergeBatch:
+        return MergeBatch(
+            clusters=[
+                ClusterMerge(name="tracking unreliable", description="", members=[0, 1]),
+                ClusterMerge(name="customs paperwork", description="", members=[2]),
+            ]
+        )
+
+    ask = FakeAsk(cluster=cluster, cluster_merge=merge)
+    result = cluster_signals(_items(7), PLAN, PACK, cfg, ask)
+    assert ask.asked == ["cluster", "cluster_merge"]
+    assert [(d.name, d.signal_ids) for d in result.clusters] == [
+        ("tracking unreliable", [1, 2, 3, 4]),
+        ("customs paperwork", [5, 6]),
+    ]
+    assert result.noise == [7]
+    assert result.notes["merged_away"] == 1
+
+    # One cluster has nothing to merge with: no merge call.
+    ask = FakeAsk(
+        cluster=lambda _: ClusterBatch(
+            clusters=[ClusterDraft(name="only", description="", signal_ids=[1, 2])], noise=[3]
+        )
+    )
+    cluster_signals(_items(3), PLAN, PACK, cfg, ask)
+    assert ask.asked == ["cluster"]
 
 
 # --- pipeline (DB) ---------------------------------------------------------------------------

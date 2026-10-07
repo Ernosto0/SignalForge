@@ -142,6 +142,10 @@ cluster:
   max_clusters: 25
   # More signals than this are clustered in chunks, then the chunk clusters are merged.
   max_signals_per_call: 400
+  # Also run the merge prompt when the run fits one call: a second look that joins clusters of
+  # the same business + workflow. Run #6 (181 signals, one call) split one fleet-tracking problem
+  # into 6 clusters even with the prompt rule.
+  merge_pass: true
   # Smaller clusters go to noise: one signal is not a problem pattern.
   min_cluster_size: 2
   # A lone regulatory signal (one obligation, one official source) may form its own cluster.

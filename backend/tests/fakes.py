@@ -11,6 +11,7 @@ from signalforge.agents.loop import LoopAction
 from signalforge.config import BACKEND_DIR, CacheMode, Settings, get_defaults
 from signalforge.domain.collection import TriageBatch, TriageJudgment
 from signalforge.domain.competitors import CompetitorSeeds
+from signalforge.domain.evidence import ClusterMerge, MergeBatch
 from signalforge.domain.plan import load_plan
 from signalforge.evidence.entailment import EntailmentBatch, EntailmentVerdict
 from signalforge.packs import load_pack
@@ -81,6 +82,17 @@ class FakeSearch:
 Handler = Callable[[str], BaseModel]
 
 
+def merge_nothing(prompt_input: str) -> MergeBatch:
+    """Cluster merge that keeps every cluster as it is."""
+    listing = json.loads(prompt_input.split("# Clusters\n", 1)[1])
+    return MergeBatch(
+        clusters=[
+            ClusterMerge(name=c["name"], description=c["description"], members=[c["id"]])
+            for c in listing
+        ]
+    )
+
+
 def support_all(prompt_input: str) -> EntailmentBatch:
     """Entailment answer: every numbered claim is supported."""
     items = json.loads(prompt_input.split("# Claims\n", 1)[1])
@@ -99,6 +111,7 @@ class FakeLLM:
             LoopAction: lambda _: LoopAction(action="finish", reason="done"),
             EntailmentBatch: support_all,
             CompetitorSeeds: lambda _: CompetitorSeeds(from_signals=[], suggested=[]),
+            MergeBatch: merge_nothing,
             **(handlers or {}),
         }
         self.calls: list[type[BaseModel]] = []

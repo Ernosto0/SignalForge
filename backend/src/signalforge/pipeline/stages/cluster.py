@@ -7,7 +7,8 @@ offered once more to the existing clusters (prompts/cluster_assign.md), and clus
 ``min_cluster_size`` go to noise (a lone ``regulatory`` signal may stand alone). An id the model
 puts in several clusters stays in the one holding most other signals from the same document. Runs
 with more than ``max_signals_per_call`` signals are clustered in parts, grouped by submarket, whose
-clusters are then merged (prompts/cluster_merge.md).
+clusters are then merged (prompts/cluster_merge.md). With ``merge_pass``, a run that fits one call
+gets the same merge step as a second look, joining clusters of the same business and workflow.
 
 Each cluster gets one ``inference`` claim, derived from the ``fact`` claims of its signals.
 
@@ -233,7 +234,8 @@ def merge_parts(
     ask: AskFn,
     notes: Counter[str],
 ) -> Clustering:
-    """Combine the clusters of separately clustered parts into run-level clusters."""
+    """Combine the clusters of separately clustered parts (or of one part, as a second look)
+    into run-level clusters."""
     part_clusters = [d for p in parts for d in p.clusters]
     noise = {i for p in parts for i in p.noise}
     listing = [
@@ -295,7 +297,11 @@ def cluster_signals(
         for i in range(0, len(ordered), size)
     ]
     notes["parts"] = len(parts)
-    result = parts[0] if len(parts) == 1 else merge_parts(parts, items, context, cfg, ask, notes)
+    merge = len(parts) > 1 or (cfg.merge_pass and len(parts[0].clusters) > 1)
+    result = merge_parts(parts, items, context, cfg, ask, notes) if merge else parts[0]
+    notes["merged_away"] = (
+        sum(len(p.clusters) for p in parts) - len(result.clusters) if merge else 0
+    )
 
     def big_enough(d: Draft) -> bool:
         if len(d.signal_ids) >= cfg.min_cluster_size:
@@ -392,6 +398,7 @@ def cluster_metrics(
         "too_small_ids": notes["too_small_ids"],
         "regulatory_singletons": notes["regulatory_singletons"],
         "merge_unlisted": notes["merge_unlisted"],
+        "merged_away": notes["merged_away"],
         "independent_sources": sorted((s.independent_sources for s in stats), reverse=True),
         "strength": sorted((s.score for s in stats), reverse=True),
         # Clusters whose signals have no fact claims (extracted before claims existed) get no

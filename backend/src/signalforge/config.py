@@ -139,6 +139,7 @@ class ExtractDefaults(BaseModel):
 class ClusterDefaults(BaseModel):
     max_clusters: int
     max_signals_per_call: int
+    merge_pass: bool
     min_cluster_size: int
     keep_regulatory_singletons: bool
     max_output_tokens: int
