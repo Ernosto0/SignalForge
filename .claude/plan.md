@@ -345,9 +345,11 @@ Responses API).
 
 **Search** (`providers/search/`): `SearchProvider.search(query, locale, n) -> list[SearchHit]`
 (`SearchHit` is the provider-level result; the run-scoped `SearchResult` row is written by the search stage).
-Default: **SerpApi** (serpapi.com), Google engine with `gl=tr`, `hl=tr`, `google_domain=google.com.tr`
-(best coverage of Turkish long-tail content). Other providers (e.g. Brave) can be added behind the same
-interface later.
+Default: **Serper** (serper.dev), Google results with `gl=tr`, `hl=tr` (no `google_domain` parameter).
+Chosen over SerpApi on 2026-10-07 after an A/B on run #4's 192 queries: no timeouts (SerpApi: 12 of 42
+loop searches), `site:` always honoured (SerpApi: 49%), ≈ 25× cheaper per search. **SerpApi** stays
+selectable (`SEARCH_PROVIDER=serpapi`, adds `google_domain=google.com.tr`). Other providers (e.g. Brave)
+can be added behind the same interface later.
 
 **Fetch** (`providers/fetch.py`): httpx + trafilatura, robots.txt, per-domain rate limits, no JS
 rendering in V0 (JS-heavy pages are skipped and counted).
@@ -405,7 +407,7 @@ backend/
                          # shortlist, verify, competitors, commercial, score, report
     domain/              # Pydantic models (stage I/O, plan.yaml schema, report.json schema)
     db/                  # base.py, session.py, migrations/ (Alembic)
-    providers/           # llm.py, fetch.py, search/{base,serpapi}.py, cache.py, urls.py
+    providers/           # llm.py, fetch.py, search/{base,serper,serpapi}.py, cache.py, urls.py
     evidence/            # quotes, dedup, independence, strength, entailment, claims, extraction,
                          # documents, clusters (post-verify reads), gaps (M4 exit check)
     scoring/             # rubric.yaml, config.yaml, scorer.py, categories.py, experiments.py
@@ -505,7 +507,7 @@ platform adapters → V2 iterative autonomous research + embeddings → V3 conti
 
 | Decision | Default |
 |---|---|
-| SERP provider | SerpApi (Google engine, `gl=tr&hl=tr`) |
+| SERP provider | Serper (Google, `gl=tr&hl=tr`); SerpApi selectable |
 | LLM provider | OpenAI; Jev to be evaluated per stage after V0 works |
 | LLM models | `gpt-6-luna` for all tiers during development; `gpt-6.1-sol` / `gpt-6-astra` opt-in for quality evaluation (§10) |
 | Report language | English, with original Turkish quotes + translations |

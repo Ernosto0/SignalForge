@@ -34,8 +34,9 @@ class Settings(BaseSettings):
     # Salts author hashes (independence counting, plan §2 #17); raw names are never stored.
     author_hash_salt: SecretStr | None = None
 
-    search_provider: str = "serpapi"
+    search_provider: str = "serper"  # serper | serpapi
     serp_api_key: SecretStr | None = None
+    serper_api_key: SecretStr | None = None
 
     default_market_pack: str = "tr"
     default_budget_usd: float = 10.0

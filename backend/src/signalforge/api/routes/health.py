@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from signalforge import __version__
 from signalforge.config import get_settings
 from signalforge.db.session import get_engine
+from signalforge.providers.search import search_api_key
 
 router = APIRouter(tags=["health"])
 
@@ -33,5 +34,5 @@ def health() -> HealthResponse:
         version=__version__,
         database=database,
         llm_key_configured=settings.openai_api_key is not None,
-        search_key_configured=settings.serp_api_key is not None,
+        search_key_configured=search_api_key(settings) is not None,
     )

@@ -21,7 +21,7 @@ docker-compose.yml   Postgres 16 on host port 5433
 ## Setup
 
 ```bash
-cp .env.example .env              # then fill in OPENAI_API_KEY and SERP_API_KEY
+cp .env.example .env              # then fill in OPENAI_API_KEY and SERPER_API_KEY (or SERP_API_KEY with SEARCH_PROVIDER=serpapi)
 
 docker compose up -d db           # Postgres on localhost:5433
 
@@ -51,7 +51,7 @@ The home page shows setup status: API, database, and whether API keys are config
 Run from `backend/` with `uv run signalforge <command>`:
 
 ```bash
-signalforge search "nakliye sevkiyat Excel'de takip"   # SerpApi, Turkish locale from the TR pack
+signalforge search "nakliye sevkiyat Excel'de takip"   # Serper by default (or SerpApi), Turkish locale from the TR pack
 signalforge fetch https://example.com.tr/yazi          # robots.txt, rate limit, text extraction
 signalforge llm-check                                  # one structured LLM call, logged with cost
 signalforge ledger                                     # recent LLM calls and total spend
