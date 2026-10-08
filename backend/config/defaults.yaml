@@ -42,15 +42,18 @@ query_gen:
   # Hard cap on stored queries for a run (plan §4).
   max_queries: 150
   # Per-submarket quota split. The pack's regulatory seeds are added on top as market-wide queries
-  # (and count toward max_queries). Job ads get a large share: in the first SERP checks they were
-  # the most reliable first-hand B2B signal (duties name the manual work being paid for).
-  intent_mix: { pain: 0.55, jobs: 0.30, regulatory: 0.15 }
-  # Split of each submarket's pain quota across signal types. Provisional, from ~40 SERP probes
-  # (2026-10-05): named-vendor complaints ("<vendor> şikayet") were the most reliable first-hand
-  # pain; Excel/WhatsApp workaround queries returned tutorials and templates (0/7); price and
-  # wish queries mostly return vendor pages. Re-tune from per-query yield once M2 measures it.
+  # (and count toward max_queries). Job ads get a large share: their duty lists name the manual
+  # work being paid for, which is the work an automation product replaces. Regulation is kept
+  # small: in the first live run (2026-10-06) it yielded 46 of 123 signals, mostly rule text.
+  intent_mix: { pain: 0.55, jobs: 0.35, regulatory: 0.10 }
+  # Split of each submarket's pain quota across signal types, aimed at software-shaped problems
+  # (2026-10-08). Vendor complaints were halved: "<vendor> şikayet" queries returned mostly service
+  # failures (lost parcels, unanswered support) that no new software fixes. Workaround and wish
+  # queries were raised, but not further: in ~40 SERP probes (2026-10-05) Excel/WhatsApp
+  # workaround queries returned tutorials and templates (0/7) and wish queries vendor pages.
+  # Re-tune from the market scan's per-type yield.
   pain_signal_mix:
-    { complaint: 0.30, tool_complaint: 0.30, workaround: 0.15, wish: 0.15, price_signal: 0.10 }
+    { complaint: 0.30, workaround: 0.25, wish: 0.20, tool_complaint: 0.15, price_signal: 0.10 }
   # Share of drafts the model is asked to restrict with `site:<registry domain>`; the rest search
   # the open web, where most long-tail Turkish B2B pain lives. Google silently ignores a `site:`
   # with no matching pages, so pain hints are kept rare.
@@ -165,10 +168,22 @@ strength:
   # Recency credit for a source without a publication date.
   unknown_date: 0.5
 
+# When a signal counts as software-fit (evidence/fit.py): something a small team's AI automation
+# or workflow web app could address. The extract prompt states the facts; this rule decides, so it
+# can be re-tuned without re-extracting. Real pain caused by a third party (a carrier losing a
+# parcel) or by hardware does not fit.
+software_fit:
+  require_recurring: true
+  data_kinds: [documents, messages, spreadsheets, forms, system_data]
+  causes: [own_process, tool, regulation]
+
 # Gate 1 (plan §4). min_strength is provisional: calibrate on the first labelled runs.
 shortlist:
   min_strength: 4.0
   min_independent_sources: 3
+  # A shortlisted problem also needs this many independent sources with a software-fit signal:
+  # strong evidence of a problem software can't touch is not an opportunity for us.
+  min_software_fit_sources: 2
   max_shortlisted: 10
 
 # --- M4 verification & competitors: verify → competitors (plan §4, §7) -----------------------

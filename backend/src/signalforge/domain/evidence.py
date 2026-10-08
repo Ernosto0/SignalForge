@@ -7,6 +7,14 @@ SignalType = Literal[
     "complaint", "workaround", "labor_spend", "wish", "tool_complaint", "price_signal", "regulatory"
 ]
 
+# Software-fit facts (evidence/fit.py): what the work handles and where the problem comes from.
+# The model states these facts; a configurable rule decides whether a small team's AI automation
+# or workflow web app could address the signal.
+DataKind = Literal[
+    "documents", "messages", "spreadsheets", "forms", "system_data", "physical", "none"
+]
+Cause = Literal["own_process", "tool", "third_party", "regulation", "hardware", "other"]
+
 
 class ExtractedSignal(BaseModel):
     """One signal proposed by the ``extract`` prompt. The quote is verified before it is stored."""
@@ -22,6 +30,11 @@ class ExtractedSignal(BaseModel):
     # schema sent to the model still requires the field.
     submarket: str | None = None
     author: str | None  # display name shown with the quote, if any (hashed, never stored)
+    # Software-fit facts. Defaults serve tests only, like `submarket` above.
+    recurring: bool = False  # the work or problem repeats (per order, file, day, month)
+    manual_task: str | None = None  # what people do by hand, English, a few words
+    data_kind: DataKind = "none"
+    cause: Cause = "other"
 
 
 class ExtractionBatch(BaseModel):

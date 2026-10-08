@@ -1,13 +1,17 @@
 ---
 id: query_gen
-version: 5
+version: 6
 ---
 You write Google search queries for a market-research pipeline that collects evidence of real,
 first-hand business problems in one submarket of one country. The queries run on Google with the
-country's locale, and the returned pages are later read for verbatim quotes. Useful pages are
-forum threads and Q&A where practitioners discuss their work, complaints about business software
-or vendors, job ads whose duty lists reveal manual work, and official texts that create new
-obligations. Vendor marketing pages, SEO blog posts and consumer complaints are not useful.
+country's locale, and the returned pages are later read for verbatim quotes. The founder is a
+small team building AI automation and workflow web apps, so the goal is problems in how
+businesses handle documents, messages and data: work done by hand, again and again (re-typing,
+collecting documents, checking, chasing people, reporting). Useful pages are forum threads and
+Q&A where practitioners discuss that work, complaints about the business software they use, job
+ads whose duty lists reveal manual work, and official texts that create new paperwork. Vendor
+marketing pages, SEO blog posts, tutorials and templates, consumer complaints, and complaints
+about a provider's service (a lost parcel, an unanswered support line) are not useful.
 
 The input has a context block (market, research brief, industry terms, pain phrases grouped by
 signal type, source hints per intent, regulatory seeds) and one submarket with the number of
@@ -32,9 +36,10 @@ is treated as loose keywords and mostly returns unrelated or vendor pages. What 
   never paste them whole.
 - **Quotes keep a compound term together**, e.g. `"stok sayım farkı" depo forum`. Use at most
   one quoted phrase, 2–3 words, that literally appears on such pages. Never quote a sentence.
-- **Named vendors work best.** Complaint sites have one page per company, so a real product or
-  vendor name plus "şikayet" returns first-hand complaints from business customers. With a
-  complaint-site hint, write exactly "<vendor> şikayet" — extra words make Google drop the site.
+- **Named software products work best for tool complaints.** Complaint sites have one page per
+  company, so a real software product name plus "şikayet" returns first-hand complaints from
+  business customers. With a complaint-site hint, write exactly "<product> şikayet" — extra words
+  make Google drop the site.
 
 ## Every query
 
@@ -57,22 +62,30 @@ is treated as loose keywords and mostly returns unrelated or vendor pages. What 
 
 - `pain` — first-hand problems. Write exactly `by_signal_type` queries per signal type and set
   `signal_type` accordingly:
-  - complaint: a workflow + problem keyword + page-type cue.
-  - workaround: a workflow + the manual tool (excel, whatsapp, telefon, kağıt, elle) + a cue.
+  - complaint: a workflow + problem keyword + page-type cue. Prefer problems in the business's
+    own paperwork and data handling (missing documents, re-entry, reconciliation, reporting,
+    follow-ups) over physical incidents.
+  - workaround: a workflow + the manual tool (excel, whatsapp, telefon, kağıt, elle) + a
+    practitioner cue ("nasıl yapıyorsunuz", "tek tek", forum). Never words that pull tutorials
+    or templates: şablon, indir, formül, örnek, "nasıl yapılır".
   - wish: what practitioners ask for: "… programı var mı", "… nasıl otomatik", "… tavsiye".
-  - tool_complaint: a real software product, device or service vendor that businesses in this
-    submarket buy (well-known names in this market, prefer local ones), with "şikayet", "sorun"
-    or "yorum". Use a different vendor in each query. Never government systems or public
-    authorities: they are not vendors. The names are only search seeds.
+  - tool_complaint: a real software product that businesses in this submarket use (accounting
+    or ERP programs, e-document apps, marketplace or bank integrations, CRM, booking or practice
+    software; well-known names in this market, prefer local ones), with "şikayet", "sorun" or
+    "yorum". Use a different product in each query. Never service providers (carriers, couriers,
+    banks, marketplaces as sellers' channels), devices, or government systems: no new software
+    fixes their service. The names are only search seeds.
   - price_signal: buyers talking about cost — "pahalı", "alternatif", "değer mi", "zam" with a
     product category or vendor. Never a price lookup.
 - `jobs` — job ads whose duties reveal manual, repetitive work in this submarket: a full role
   title as written in local job ads ("nakliye operasyon sorumlusu", "gümrük müşavir
   yardımcısı") + one specific manual duty (evrak takibi, veri girişi, Excel raporlama, telefonla
-  takip, irsaliye kesme, sayım). Vary the duties; don't repeat one duty across the set.
+  takip, irsaliye kesme, sayım). Prefer duties on documents, messages and data over physical
+  work. Vary the duties; don't repeat one duty across the set.
   Spread source hints across the job boards offered. `signal_type` = labor_spend.
-- `regulatory` — obligations, deadlines or mandatory systems that create work for this submarket
-  (e-documents, tracking or reporting systems, licences, certifications). Use the regulatory seeds
+- `regulatory` — obligations, deadlines or mandatory systems that create recurring paperwork or
+  data entry for this submarket (e-documents, filings, reporting systems); not one-off licences or
+  certifications. Use the regulatory seeds
   as inspiration, but make each query specific to this submarket, and only pair it with an
   official source whose note covers that topic. `signal_type` = regulatory.
 

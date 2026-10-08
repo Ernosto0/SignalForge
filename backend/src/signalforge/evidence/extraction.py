@@ -24,6 +24,7 @@ from signalforge.db.models import Excerpt, Signal
 from signalforge.domain.evidence import ExtractedSignal, ExtractionBatch
 from signalforge.domain.plan import ResearchPlan
 from signalforge.evidence.claims import add_fact
+from signalforge.evidence.fit import fit_facts
 from signalforge.evidence.independence import author_hash
 from signalforge.evidence.quotes import QuoteMatch, verify_quote
 from signalforge.packs import MarketPack
@@ -251,8 +252,9 @@ def write_signals(
 ) -> list[tuple[int, int]]:
     """Store each kept signal as Excerpt → Signal → fact Claim; returns ``(signal id, claim id)``.
 
-    The fact's statement is the signal's statement, supported by exactly its one excerpt. ``meta``
-    adds stage-specific keys to ``Signal.meta`` (e.g. verify's ``counter``).
+    The fact's statement is the signal's statement, supported by exactly its one excerpt.
+    ``Signal.meta`` keeps the submarket and the software-fit facts (``fit``, evidence/fit.py);
+    ``meta`` adds stage-specific keys (e.g. verify's ``counter``).
     """
     written = []
     for item in kept:
@@ -276,6 +278,7 @@ def write_signals(
             statement=sig.statement,
             first_hand=sig.first_hand,
             meta=({"submarket": item.submarket} if item.submarket else {})
+            | {"fit": fit_facts(sig)}
             | (meta(item) if meta else {}),
         )
         session.add(signal)

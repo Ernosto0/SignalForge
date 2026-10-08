@@ -9,7 +9,7 @@ import json
 import re
 from datetime import UTC, datetime
 
-from fakes import OTHER, PACK, PARAGRAPH, PLAN, FakeLLM, FakeSearch, make_context
+from fakes import FIT, OTHER, PACK, PARAGRAPH, PLAN, FakeLLM, FakeSearch, make_context
 from sqlalchemy import func, select, update
 
 from signalforge.agents.loop import LoopAction
@@ -47,11 +47,12 @@ GATE = DEFAULTS.shortlist.model_copy(
 def test_gate1_explains_every_decision() -> None:
     decisions = gate1(
         [
-            GateInput(1, 6.0, 5),
-            GateInput(2, 3.0, 9),  # weak
-            GateInput(3, 7.0, 2),  # too few sources
-            GateInput(4, 5.0, 4),
-            GateInput(5, 4.0, 3),  # passes, but third strongest
+            GateInput(1, 6.0, 5, 3),
+            GateInput(2, 3.0, 9, 3),  # weak
+            GateInput(3, 7.0, 2, 2),  # too few sources
+            GateInput(4, 5.0, 4, 2),
+            GateInput(5, 4.0, 3, 3),  # passes, but third strongest
+            GateInput(6, 8.0, 9, 1),  # strong, but software can't touch most of it
         ],
         GATE,
     )
@@ -59,14 +60,14 @@ def test_gate1_explains_every_decision() -> None:
     failed = {i: [t["rule"] for t in d.trace if not t["passed"]] for i, d in decisions.items()}
     assert failed == {
         1: [], 2: ["min_strength"], 3: ["min_independent_sources"], 4: [],
-        5: ["max_shortlisted"],
+        5: ["max_shortlisted"], 6: ["min_software_fit_sources"],
     }  # fmt: skip
     assert decisions[5].trace[-1]["value"] == 3  # its position among passing clusters
 
 
 def test_gate1_ties_break_by_sources_then_id() -> None:
     decisions = gate1(
-        [GateInput(7, 5.0, 3), GateInput(3, 5.0, 3), GateInput(9, 5.0, 8)],
+        [GateInput(7, 5.0, 3, 2), GateInput(3, 5.0, 3, 2), GateInput(9, 5.0, 8, 2)],
         GATE,
     )
     assert {i for i, d in decisions.items() if d.shortlisted} == {9, 3}
@@ -113,7 +114,7 @@ def _seed(db, run_id: int) -> dict[str, int]:
             signal = Signal(
                 run_id=run_id, excerpt_id=excerpt.id, type="complaint", actor="nakliyeci",
                 workflow="delivery notes", statement=f"Carrier {i} re-types notes.",
-                first_hand=i != 1,
+                first_hand=i != 1, meta={"fit": FIT},
             )  # fmt: skip
             session.add(signal)
             session.flush()
@@ -153,14 +154,19 @@ def test_shortlist_stage_and_landscape_report(db, tmp_path) -> None:
     assert row.status == "completed"
     assert row.metrics == {
         "clusters": 2, "shortlisted": 1, "insufficient_evidence": 1,
-        "failed_by_rule": {"min_strength": 1, "min_independent_sources": 1},
+        "failed_by_rule": {"min_strength": 1, "min_independent_sources": 1,
+                           "min_software_fit_sources": 1},
     }  # fmt: skip
     with db() as session:
         clusters = {c.id: c for c in session.scalars(select(ProblemCluster))}
     assert clusters[ids["strong"]].shortlisted and not clusters[ids["weak"]].shortlisted
     assert [t["rule"] for t in clusters[ids["weak"]].gate_trace] == [
-        "min_strength", "min_independent_sources",
+        "min_strength", "min_independent_sources", "min_software_fit_sources",
     ]  # fmt: skip
+    # Three software-fit signals, but documents 0 and 1 share an author: two independent sources.
+    (fit_rule,) = [t for t in clusters[ids["strong"]].gate_trace
+                   if t["rule"] == "min_software_fit_sources"]  # fmt: skip
+    assert (fit_rule["value"], fit_rule["passed"]) == (2, True)
 
     report = build_landscape(db, run_id, ctx.defaults)
     (problem,) = report["shortlist"]
@@ -172,6 +178,7 @@ def test_shortlist_stage_and_landscape_report(db, tmp_path) -> None:
     (weak,) = report["insufficient_evidence"]
     assert weak["failed_rules"] == [
         "evidence strength below the bar", "too few independent sources",
+        "too few sources showing work software could take over",
     ]  # fmt: skip
     funnel = {r["step"]: r["count"] for r in report["funnel"]}
     assert (funnel["Documents"], funnel["Verified signals"], funnel["Queries"]) == (3, 3, None)
@@ -285,7 +292,7 @@ def _seed_verify(db, run_id: int, clusters: int = 1) -> list[int]:
                 signal = Signal(
                     run_id=run_id, excerpt_id=excerpt.id, type="complaint", actor="nakliyeci",
                     workflow="delivery notes", statement=f"Carrier {k}{i} re-types notes.",
-                    first_hand=True,
+                    first_hand=True, meta={"fit": FIT},
                 )  # fmt: skip
                 session.add(signal)
                 session.flush()
@@ -359,8 +366,9 @@ def test_verify_adds_evidence_flags_counter_signals_and_rechecks_gate1(db) -> No
     assert cluster.shortlisted and v["passed"]
     assert (doc.problem_id, doc.canonical_url) == (cluster_id, "https://forum.com/shared")
     assert query.meta["origin"] == "loop" and query.meta["problem_ids"] == [cluster_id]
+    no_fit = {"recurring": False, "manual_task": None, "data_kind": "none", "cause": "other"}
     assert [s.meta for s in added] == [
-        {"origin": "verify", "problem_id": cluster_id, "counter": False}
+        {"origin": "verify", "problem_id": cluster_id, "counter": False, "fit": no_fit}
     ]
     assert [s.meta["counter"] for s in counter] == [True]
     assert {e.document_id for e in verify_excerpts} == {doc.id}

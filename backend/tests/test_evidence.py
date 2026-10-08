@@ -6,6 +6,7 @@ import pytest
 
 from signalforge.config import get_defaults
 from signalforge.evidence.documents import page_date
+from signalforge.evidence.fit import software_fit
 from signalforge.evidence.independence import (
     author_hash,
     same_author_groups,
@@ -137,6 +138,24 @@ def test_page_dates_on_or_after_the_fetch_day_are_unknown() -> None:
     assert page_date("2026-10-07", fetched) is None
     assert page_date("2026-03-17", fetched) == datetime(2026, 3, 17, tzinfo=UTC)
     assert page_date(None, fetched) is None and page_date("dün", fetched) is None
+
+
+def test_software_fit_needs_recurring_data_work_with_a_cause_software_can_change() -> None:
+    cfg = get_defaults().software_fit
+    fits = {"recurring": True, "manual_task": "re-typing invoices", "data_kind": "documents",
+            "cause": "own_process"}  # fmt: skip
+    assert software_fit(fits, cfg)
+    assert software_fit({**fits, "cause": "tool", "data_kind": "system_data"}, cfg)
+    assert software_fit({**fits, "cause": "regulation", "data_kind": "forms"}, cfg)
+    # Real pain, but not something a small team's software fixes:
+    assert not software_fit({**fits, "cause": "third_party"}, cfg)  # a carrier lost the parcel
+    assert not software_fit({**fits, "cause": "hardware"}, cfg)  # tracking devices fail
+    assert not software_fit({**fits, "data_kind": "physical"}, cfg)  # loading trucks
+    assert not software_fit({**fits, "recurring": False}, cfg)  # a one-off incident
+    assert not software_fit(None, cfg)  # stored before the facts existed
+    assert software_fit(
+        {**fits, "recurring": False}, cfg.model_copy(update={"require_recurring": False})
+    )
 
 
 def test_strength_grows_with_independent_sources_and_saturates() -> None:

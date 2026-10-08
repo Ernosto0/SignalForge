@@ -53,6 +53,7 @@ FUNNEL = [
 RULE_TEXT = {
     "min_strength": "evidence strength below the bar",
     "min_independent_sources": "too few independent sources",
+    "min_software_fit_sources": "too few sources showing work software could take over",
     "max_shortlisted": "passed, but outside the shortlist cap",
     "verify_min_strength": "evidence strength below the bar after verification",
     "verify_min_independent_sources": "too few independent sources after verification",

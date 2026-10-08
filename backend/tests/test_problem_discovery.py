@@ -10,7 +10,7 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-from fakes import OTHER, PACK, PARAGRAPH, PLAN, FakeLLM, FakeSearch, make_context
+from fakes import FIT, OTHER, PACK, PARAGRAPH, PLAN, FakeLLM, FakeSearch, make_context
 from pydantic import BaseModel
 from sqlalchemy import func, select
 
@@ -51,7 +51,7 @@ ROAD, CUSTOMS = "Road freight", "Customs brokerage"
 def _signal(quote: str, author: str | None = None, **kw: Any) -> ExtractedSignal:
     fields = {"translation": "t", "type": "complaint", "actor": "nakliyeci", "workflow": "w",
               "statement": f"statement for {quote[:20]}", "first_hand": True, "author": author,
-              **kw}  # fmt: skip
+              **FIT, **kw}  # fmt: skip
     return ExtractedSignal(quote=quote, **fields)
 
 
@@ -475,7 +475,7 @@ def test_problem_discovery_writes_signals_claims_and_clusters(db, monkeypatch) -
 
     snap = snapshot()
     signals, excerpts, facts = snap["signals"], snap["excerpts"], snap["facts"]
-    assert all(s.meta == {"submarket": ROAD} for s in signals)
+    assert all(s.meta == {"submarket": ROAD, "fit": FIT} for s in signals)
     assert all(e.run_id == run_id and e.verified == "exact" for e in excerpts.values())
     # One fact per signal: its statement, supported by exactly its excerpt.
     assert sorted((f.statement, f.supports, f.stage) for f in facts) == sorted(

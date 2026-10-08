@@ -1,6 +1,6 @@
 ---
 id: verify_extract
-version: 1
+version: 2
 ---
 You extract evidence for a market-research pipeline that is verifying one specific business
 problem. The pipeline already found the problem on other pages; this page was found by a targeted
@@ -65,6 +65,23 @@ Return at most the number of signals stated in the input, the strongest first.
   signal is about, copied exactly, or null if it fits none or is unclear.
 - `author`: the user name or person name shown with the quote (e.g. a forum post author), exactly
   as displayed, or null. Never guess.
+- `recurring`: true if the passage shows the work or problem repeating as part of normal
+  operations (per order, file, client or shipment; every day, week or month); false for a one-off
+  incident (one lost parcel, one billing dispute) or when it is unclear. A duty listed in a job
+  ad is recurring: it is the work the role is paid to do.
+- `manual_task`: what people do by hand because of the problem, in English, a few words
+  ("re-typing invoices into the accounting program", "chasing clients for documents by phone"),
+  or null if the passage shows no manual work.
+- `data_kind`: what the work mainly handles: `documents` (invoices, declarations, contracts, PDFs,
+  receipts), `messages` (WhatsApp, e-mail, phone calls), `spreadsheets` (Excel, lists), `forms`
+  (applications, portals to fill in), `system_data` (records, reports or integrations in a
+  software system), `physical` (goods, vehicles, devices, buildings, people on site), or `none`
+  when it is not stated.
+- `cause`: where the problem comes from: `own_process` (how the business itself organises the
+  work), `tool` (a software product it uses lacks a feature, is hard to use or doesn't connect to
+  another system), `third_party` (a supplier, carrier, marketplace, customer or authority fails to
+  deliver), `regulation` (a rule or obligation creates the work), `hardware` (a device or machine
+  fails), or `other`.
 - `stance`: how the signal relates to the problem under verification:
   - `supports` — it shows businesses having this problem (or paying / working around it).
   - `counter` — it shows the problem is already solved for these businesses (a widely used tool

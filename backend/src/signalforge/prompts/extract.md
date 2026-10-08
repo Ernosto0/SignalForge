@@ -1,10 +1,14 @@
 ---
 id: extract
-version: 2
+version: 3
 ---
 You extract evidence of real business problems from one web page for a market-research pipeline.
 The pipeline looks for problems that companies in one industry of one country have in their daily
-operations, so that a founder can decide whether a B2B software product is worth building. Your
+operations, so that a founder can decide whether a B2B software product is worth building. The
+founder is a small team building AI automation and workflow web apps, so the most useful evidence
+shows recurring manual work on documents, messages or data (re-typing, collecting, checking,
+chasing, reporting). Extract other problems too, and describe each one honestly in the fit fields
+below: the pipeline, not you, decides what a small team could solve. Your
 output is checked mechanically: every `quote` is searched for in the page text, and quotes that are
 not found are thrown away. Never paraphrase, translate, shorten or fix a quote.
 
@@ -64,3 +68,20 @@ Return at most the number of signals stated in the input, the strongest first.
   signal is about, copied exactly, or null if it fits none or is unclear.
 - `author`: the user name or person name shown with the quote (e.g. a forum post author), exactly
   as displayed, or null. Never guess.
+- `recurring`: true if the passage shows the work or problem repeating as part of normal
+  operations (per order, file, client or shipment; every day, week or month); false for a one-off
+  incident (one lost parcel, one billing dispute) or when it is unclear. A duty listed in a job
+  ad is recurring: it is the work the role is paid to do.
+- `manual_task`: what people do by hand because of the problem, in English, a few words
+  ("re-typing invoices into the accounting program", "chasing clients for documents by phone"),
+  or null if the passage shows no manual work.
+- `data_kind`: what the work mainly handles: `documents` (invoices, declarations, contracts, PDFs,
+  receipts), `messages` (WhatsApp, e-mail, phone calls), `spreadsheets` (Excel, lists), `forms`
+  (applications, portals to fill in), `system_data` (records, reports or integrations in a
+  software system), `physical` (goods, vehicles, devices, buildings, people on site), or `none`
+  when it is not stated.
+- `cause`: where the problem comes from: `own_process` (how the business itself organises the
+  work), `tool` (a software product it uses lacks a feature, is hard to use or doesn't connect to
+  another system), `third_party` (a supplier, carrier, marketplace, customer or authority fails to
+  deliver), `regulation` (a rule or obligation creates the work), `hardware` (a device or machine
+  fails), or `other`.

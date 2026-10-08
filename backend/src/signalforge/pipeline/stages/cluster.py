@@ -56,6 +56,7 @@ class SignalItem:
     first_hand: bool
     submarket: str | None = None
     excerpt_id: int | None = None
+    fit: dict[str, Any] | None = None  # software-fit facts (evidence/fit.py)
 
     def prompt_item(self) -> dict[str, Any]:
         return {
@@ -435,6 +436,7 @@ def load_evidence(
                 s.first_hand,
                 submarket=(s.meta or {}).get("submarket"),
                 excerpt_id=s.excerpt_id,
+                fit=(s.meta or {}).get("fit"),
             )
             for s, doc_id in session.execute(
                 select(Signal, Excerpt.document_id)

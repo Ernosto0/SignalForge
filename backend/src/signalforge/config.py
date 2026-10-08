@@ -155,9 +155,19 @@ class StrengthDefaults(BaseModel):
     unknown_date: float
 
 
+class SoftwareFitDefaults(BaseModel):
+    """When a signal counts as software-fit (evidence/fit.py)."""
+
+    require_recurring: bool
+    data_kinds: list[str]  # what the work handles: documents, messages, data …
+    causes: list[str]  # where the problem comes from: own process, a weak tool, paperwork rules
+
+
 class ShortlistDefaults(BaseModel):
     min_strength: float
     min_independent_sources: int
+    # Independent sources with at least one software-fit signal (0 turns the rule off).
+    min_software_fit_sources: int
     max_shortlisted: int
 
 
@@ -228,6 +238,7 @@ class Defaults(BaseModel):
     extract: ExtractDefaults
     cluster: ClusterDefaults
     strength: StrengthDefaults
+    software_fit: SoftwareFitDefaults
     shortlist: ShortlistDefaults
     verify: VerifyDefaults
     entailment: EntailmentDefaults

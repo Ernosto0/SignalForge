@@ -81,8 +81,9 @@
     Quote verification pass rate {{ r.quality.quote_pass_rate|pct }} ({{ r.quality.quotes_fuzzy or 0 }} fuzzy) ·
     first-hand signals {{ r.quality.first_hand_share|pct }} ·
     signals in no cluster: {{ r.quality.noise_signals if r.quality.noise_signals is not none else "–" }}.
-    Gate 1: evidence strength ≥ {{ r.gate.min_strength }} and ≥ {{ r.gate.min_independent_sources }}
-    independent sources; at most {{ r.gate.max_shortlisted }} problems.
+    Gate 1: evidence strength ≥ {{ r.gate.min_strength }}, ≥ {{ r.gate.min_independent_sources }}
+    independent sources, and ≥ {{ r.gate.min_software_fit_sources }} of them showing work software
+    could take over; at most {{ r.gate.max_shortlisted }} problems.
   </p>
 
   <h2>Shortlisted problems</h2>

@@ -1,7 +1,8 @@
 """shortlist stage (plan §4 Gate 1, §7.5): problem clusters → shortlist, deterministic.
 
-A cluster passes when its evidence strength and its independent source count both reach the
-configured bars; the strongest ``max_shortlisted`` passing clusters are shortlisted. Every cluster
+A cluster passes when its evidence strength, its independent source count and its number of
+independent sources with a software-fit signal (evidence/fit.py) all reach the configured bars;
+the strongest ``max_shortlisted`` passing clusters are shortlisted. Every cluster
 gets a ``gate_trace`` saying which rule decided, so the "insufficient evidence" list in the
 landscape report is explainable.
 """
@@ -13,8 +14,10 @@ from sqlalchemy import select
 
 from signalforge.config import ShortlistDefaults
 from signalforge.db.models import ProblemCluster
+from signalforge.evidence.fit import software_fit
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult
+from signalforge.pipeline.stages.cluster import load_evidence
 from signalforge.providers.cache import cache_key
 
 
@@ -23,6 +26,7 @@ class GateInput:
     id: int
     strength: float
     independent_sources: int
+    software_fit_sources: int = 0
 
 
 @dataclass(frozen=True)
@@ -48,6 +52,12 @@ def gate1(clusters: list[GateInput], cfg: ShortlistDefaults) -> dict[int, GateDe
                 "value": c.independent_sources,
                 "threshold": cfg.min_independent_sources,
                 "passed": c.independent_sources >= cfg.min_independent_sources,
+            },
+            {
+                "rule": "min_software_fit_sources",
+                "value": c.software_fit_sources,
+                "threshold": cfg.min_software_fit_sources,
+                "passed": c.software_fit_sources >= cfg.min_software_fit_sources,
             },
         ]
         traces[c.id] = trace
@@ -76,6 +86,15 @@ class Shortlist:
 
     def run(self, ctx: RunContext) -> StageResult:
         cfg = ctx.defaults.shortlist
+        signals, _, units = load_evidence(ctx)
+        fit_docs = {
+            s.id: s.document_id for s in signals if software_fit(s.fit, ctx.defaults.software_fit)
+        }
+
+        def fit_sources(signal_ids: list[int]) -> int:
+            docs = (fit_docs[i] for i in signal_ids if i in fit_docs)
+            return len({units.get(d, d) for d in docs})
+
         with ctx.db.begin() as session:
             clusters = session.scalars(
                 select(ProblemCluster).where(ProblemCluster.run_id == ctx.run_id)
@@ -84,7 +103,12 @@ class Shortlist:
                 raise ValueError(f"run {ctx.run_id} has no problem clusters; run cluster first")
             decisions = gate1(
                 [
-                    GateInput(c.id, c.evidence_strength or 0.0, c.independent_source_count)
+                    GateInput(
+                        c.id,
+                        c.evidence_strength or 0.0,
+                        c.independent_source_count,
+                        fit_sources(c.signal_ids or []),
+                    )
                     for c in clusters
                 ],
                 cfg,
@@ -94,7 +118,15 @@ class Shortlist:
                 c.gate_trace = decisions[c.id].trace
                 # A new Gate-1 decision makes the second round stale; verify re-runs after this.
                 c.verification = None
-            rows = [(c.id, c.evidence_strength, c.independent_source_count) for c in clusters]
+            rows = [
+                (
+                    c.id,
+                    c.evidence_strength,
+                    c.independent_source_count,
+                    fit_sources(c.signal_ids or []),
+                )
+                for c in clusters
+            ]
 
         failed: dict[str, int] = {}
         for d in decisions.values():
@@ -107,5 +139,11 @@ class Shortlist:
             "insufficient_evidence": len(clusters) - shortlisted,
             "failed_by_rule": failed,
         }
-        input_hash = cache_key({"clusters": sorted(rows), "config": cfg.model_dump(mode="json")})
+        input_hash = cache_key(
+            {
+                "clusters": sorted(rows),
+                "config": cfg.model_dump(mode="json"),
+                "software_fit": ctx.defaults.software_fit.model_dump(mode="json"),
+            }
+        )
         return StageResult(metrics=metrics, input_hash=input_hash)

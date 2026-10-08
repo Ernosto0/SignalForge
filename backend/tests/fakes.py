@@ -22,6 +22,10 @@ from signalforge.providers.llm import Completion, LLMService
 from signalforge.providers.search import CachedSearch, SearchError, SearchHit, SearchLocale
 
 PACK = load_pack("tr")
+# Software-fit facts of the fixtures' signals (carriers re-typing delivery notes): they pass the
+# default `software_fit` rule, so Gate 1's fit check doesn't reject the test problems.
+FIT = {"recurring": True, "manual_task": "re-typing delivery notes", "data_kind": "documents",
+       "cause": "own_process"}  # fmt: skip
 PLAN = load_plan(BACKEND_DIR / "examples" / "tr-logistics.plan.yaml")
 
 PARAGRAPH = (
