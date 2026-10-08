@@ -1,0 +1,38 @@
+# Market scan plan: insurance agencies. See config/scan.yaml.
+request:
+  country: TR
+  industry: insurance
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Insurance agencies
+    name_tr: Sigorta acenteleri
+    terms: [teklif hazırlama, teklif karşılaştırma, poliçe yenileme takibi, müşteri hatırlatma,
+            tahsilat takibi, acente yazılımı, poliçe girişi, SBM, çoklu şirket teklif ekranı]
+    actors: [sigorta acentesi, acente sahibi, sigorta satış temsilcisi, operasyon personeli]
+  - name: Claims handling at agencies
+    name_tr: Acentelerde hasar dosyası takibi
+    terms: [hasar dosyası, ekspertiz, hasar evrakı, eksik evrak, hasar ödemesi takibi]
+    actors: [hasar sorumlusu, sigorta acentesi, hasar uzmanı]
+
+research_questions:
+  - Which tasks do agencies repeat by hand for every quote, renewal and claim?
+  - Where do agency software and insurers' portals fail small agencies?
+
+buyer_hypotheses:
+  - Agencies with 2–10 staff pay monthly for tools that speed up quoting and renewals.
+
+avoid:
+  - policyholders' complaints about claims being rejected or delayed
+  - insurance product explainers and price comparisons for consumers
+  - job seekers' questions about licences and salaries

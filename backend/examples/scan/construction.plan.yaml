@@ -1,0 +1,39 @@
+# Market scan plan: construction subcontractors' office work. See config/scan.yaml.
+request:
+  country: TR
+  industry: construction
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Subcontractor firms
+    name_tr: İnşaat taşeron firmaları
+    terms: [hakediş hazırlama, metraj, yeşil defter, taşeron hakedişi, puantaj, avans takibi,
+            taşeron sözleşmesi, kesinti hesabı]
+    actors: [taşeron firma, hakediş mühendisi, metraj mühendisi, teknik ofis, puantör]
+  - name: Site office and procurement
+    name_tr: Şantiye ofisi ve satın alma
+    terms: [şantiye günlük raporu, malzeme talep formu, satın alma, irsaliye kontrolü,
+            iş güvenliği evrakı, şantiye puantajı, fatura onayı]
+    actors: [şantiye şefi, şantiye mühendisi, satın alma sorumlusu, şantiye sekreteri]
+
+research_questions:
+  - Which reports and calculations do subcontractors prepare by hand every month (progress payments, timesheets, quantities)?
+  - How do site offices track materials, delivery notes and approvals?
+
+buyer_hypotheses:
+  - Subcontractor firms with recurring progress payments pay for tools that cut hakediş preparation time.
+
+avoid:
+  - homeowners' renovation questions and complaints about builders
+  - construction-material price lists and vendor pages
+  - job seekers' questions about salaries

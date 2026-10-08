@@ -1,0 +1,40 @@
+# Market scan plan: e-commerce sellers' operations. See config/scan.yaml.
+request:
+  country: TR
+  industry: ecommerce
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Multi-marketplace sellers
+    name_tr: Pazaryeri satıcıları (Trendyol, Hepsiburada, N11, Amazon)
+    terms: [stok senkronizasyonu, sipariş aktarımı, toplu fiyat güncelleme, ürün listeleme,
+            e-fatura kesme, kargo etiketi, iade yönetimi, hakediş mutabakatı, komisyon hesabı,
+            entegratör]
+    actors: [pazaryeri satıcısı, e-ticaret satıcısı, mağaza sahibi, e-ticaret operasyon uzmanı]
+  - name: E-export sellers
+    name_tr: E-ihracat / mikro ihracat satıcıları
+    terms: [Etsy, Amazon yurt dışı, ETGB, mikro ihracat, ürün çevirisi, döviz fiyatlandırma,
+            yurt dışı iade]
+    actors: [e-ihracat satıcısı, Etsy satıcısı, e-ticaret uzmanı]
+
+research_questions:
+  - Which tasks do sellers repeat by hand across marketplaces (stock, prices, orders, invoices, returns)?
+  - Where do marketplace integrators and e-commerce tools fail small sellers?
+
+buyer_hypotheses:
+  - Sellers on 2+ marketplaces pay monthly for tools that remove per-order manual work.
+
+avoid:
+  - shoppers' complaints about orders and deliveries
+  - guides and course ads on how to start e-commerce
+  - complaints about a carrier losing or delaying a parcel

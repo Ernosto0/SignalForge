@@ -1,0 +1,39 @@
+# Market scan plan: customs brokers and exporters' document work. See config/scan.yaml.
+request:
+  country: TR
+  industry: customs
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Customs brokerage offices
+    name_tr: Gümrük müşavirliği
+    terms: [gümrük beyannamesi, ithalat dosyası, evrak takibi, müşteriden evrak toplama,
+            GTİP tespiti, BİLGE sistemi, antrepo beyanı, eksik evrak, dosya kapama]
+    actors: [gümrük müşaviri, gümrük müşavir yardımcısı, operasyon sorumlusu]
+  - name: Exporters' document operations
+    name_tr: İhracat evrak ve operasyon işleri
+    terms: [ETGB, mikro ihracat, menşe şahadetnamesi, ATR, EUR.1, proforma fatura, çeki listesi,
+            ihracat beyannamesi]
+    actors: [dış ticaret uzmanı, ihracat sorumlusu, ithalat sorumlusu, operasyon uzmanı]
+
+research_questions:
+  - Which document tasks do customs offices and exporters repeat by hand for every file?
+  - How do brokers collect missing documents from clients, and what does it cost them?
+
+buyer_hypotheses:
+  - Customs broker offices pay per file or per month for document collection and tracking tools.
+
+avoid:
+  - individuals' questions about customs duty on personal parcels or phones
+  - customs-law explainers and SEO blog posts
+  - job seekers' questions about exams and salaries

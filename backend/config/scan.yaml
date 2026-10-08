@@ -1,0 +1,25 @@
+# Market scan: a shallow, cheap pass over several markets to pick one for a deep run.
+# Merged over defaults.yaml (set DEFAULTS_OVERRIDES=config/scan.yaml); everything not listed here
+# keeps its default. Each scan plan (examples/scan/*.plan.yaml) caps its own budget_usd.
+#
+#   $env:DEFAULTS_OVERRIDES="config/scan.yaml"
+#   signalforge run --plan examples/scan/accounting.plan.yaml --until shortlist
+#   signalforge compare <run ids>
+
+query_gen:
+  max_queries: 25
+  # The pack's regulatory seeds (e-Fatura, e-İrsaliye, KVKK …) are market-wide: in a scan they
+  # would take 7 of every market's 25 queries and bring the same pages into every market.
+  pack_seed_queries: false
+
+triage:
+  max_urls: 40
+  max_per_domain: 8
+
+fetch_stage:
+  max_documents: 30
+  max_attempts: 50
+
+extract:
+  # The first chunks of a page carry most of its signals; this halves extraction calls.
+  max_chunks_per_doc: 2

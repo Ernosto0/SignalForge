@@ -2,6 +2,7 @@ from decimal import Decimal
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, SecretStr
@@ -44,6 +45,10 @@ class Settings(BaseSettings):
 
     market_packs_dir: Path = BACKEND_DIR / "market_packs"
     defaults_file: Path = BACKEND_DIR / "config" / "defaults.yaml"
+    # Partial YAML merged over `defaults_file` (e.g. config/scan.yaml for a market scan), so a run
+    # can change a few caps without a full copy of the defaults. Set DEFAULTS_OVERRIDES in .env or
+    # the environment.
+    defaults_overrides: Path | None = None
 
 
 class ModelPrice(BaseModel):
@@ -250,7 +255,24 @@ def get_settings() -> Settings:
     return Settings()
 
 
+def deep_merge(base: dict[str, Any], overrides: dict[str, Any]) -> dict[str, Any]:
+    """``base`` with ``overrides`` applied: nested mappings merge key by key, anything else
+    (scalars, lists) is replaced."""
+    merged = dict(base)
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 @lru_cache
 def get_defaults() -> Defaults:
-    with get_settings().defaults_file.open(encoding="utf-8") as f:
-        return Defaults.model_validate(yaml.safe_load(f))
+    settings = get_settings()
+    with settings.defaults_file.open(encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    if settings.defaults_overrides is not None:
+        with settings.defaults_overrides.open(encoding="utf-8") as f:
+            data = deep_merge(data, yaml.safe_load(f) or {})
+    return Defaults.model_validate(data)

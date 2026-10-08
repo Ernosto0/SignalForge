@@ -1,0 +1,39 @@
+# Market scan plan: private clinics' front-office work. See config/scan.yaml.
+request:
+  country: TR
+  industry: clinics
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Dental clinics
+    name_tr: Diş klinikleri ve muayenehaneler
+    terms: [randevu takibi, hasta hatırlatma, tedavi planı, hasta kaydı, ödeme takibi, taksit takibi,
+            klinik yazılımı, onam formu, sarf malzeme stoku]
+    actors: [diş hekimi, klinik sekreteri, hasta danışmanı, klinik müdürü]
+  - name: Private practices and polyclinics
+    name_tr: Özel muayenehane ve poliklinikler
+    terms: [randevu sistemi, SGK provizyon, MEDULA, e-Nabız veri gönderimi, hasta dosyası, fatura kesme,
+            WhatsApp randevu]
+    actors: [hekim, poliklinik sekreteri, hasta kabul personeli, klinik yöneticisi]
+
+research_questions:
+  - Which front-office tasks do clinics repeat by hand (appointments, reminders, records, payments)?
+  - Where do clinic software and state systems (MEDULA, e-Nabız) create extra manual work?
+
+buyer_hypotheses:
+  - Clinics with 1–10 practitioners pay monthly for tools that cut no-shows and front-desk work.
+
+avoid:
+  - patients' complaints about treatment, doctors or prices
+  - medical explainers and health advice
+  - job seekers' questions about salaries

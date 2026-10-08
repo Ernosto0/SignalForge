@@ -49,6 +49,7 @@ from signalforge.providers.cache import CacheMiss
 from signalforge.providers.llm import LLMError, LLMUnavailable, ModelTier
 from signalforge.providers.search import SearchError
 from signalforge.providers.urls import domain_of
+from signalforge.reporting.compare import compare_markets, render_comparison, summary
 from signalforge.reporting.landscape import build_landscape, render_landscape
 
 # Turkish text must print on Windows consoles and through pipes (default there is cp1252).
@@ -553,6 +554,36 @@ def landscape(
         f"{len(report['shortlist'])} problems shortlisted, "
         f"{len(report['insufficient_evidence'])} with insufficient evidence"
     )
+
+
+@app.command()
+def compare(
+    runs: list[int] = typer.Argument(..., help="Run ids to compare (one per market)."),
+    out: Path = typer.Option(
+        Path("reports/compare.md"), "--out", help="Markdown report with each market's quotes."
+    ),
+    examples: int = typer.Option(5, "--examples", help="Quoted examples per market."),
+    as_json: bool = typer.Option(False, "--json", help="Print the ranking as JSON."),
+) -> None:
+    """Rank markets by independent sources with software-fit signals (market scan)."""
+    try:
+        rows = compare_markets(get_session_factory(), runs, get_defaults(), examples)
+    except ValueError as exc:
+        _fail(str(exc))
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    if as_json:
+        typer.echo(json.dumps(summary(rows), ensure_ascii=False, indent=2))
+        return
+    typer.echo(f"{'#':>2}  {'market':<14} {'run':>4}  {'fit src':>7}  {'fit sig':>7}  "
+               f"{'signals':>7}  {'docs':>4}  {'short':>5}  spent")  # fmt: skip
+    for i, m in enumerate(rows, 1):
+        typer.echo(
+            f"{i:>2}  {str(m.market):<14} {m.run_id:>4}  {m.fit_sources:>7}  {m.fit_signals:>7}  "
+            f"{m.signals:>7}  {m.documents:>4}  {m.shortlisted:>2}/{m.clusters:<2}  "
+            f"${m.spent_usd:.3f}"
+        )
+    typer.echo(f"wrote {render_comparison(rows, out)}")
 
 
 _CELL_MARK = {"yes": "yes", "partial": "part", "no": "no", "unknown": "?"}

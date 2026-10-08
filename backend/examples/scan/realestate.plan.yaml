@@ -1,0 +1,39 @@
+# Market scan plan: real estate offices. See config/scan.yaml.
+request:
+  country: TR
+  industry: realestate
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Brokerage offices
+    name_tr: Emlak ofisleri (satış ve kiralama aracılığı)
+    terms: [portföy yönetimi, ilan girişi, portal ilan güncelleme, müşteri takibi, yer gösterme
+            belgesi, yetki belgesi, emlak programı, emlak CRM, müşteri eşleştirme]
+    actors: [emlak danışmanı, emlakçı, gayrimenkul danışmanı, emlak ofisi sahibi]
+  - name: Rental management
+    name_tr: Kiralık yönetimi ve kira takibi
+    terms: [kira sözleşmesi hazırlama, kira tahsilatı takibi, aidat takibi, kiracı bildirimi,
+            depozito iadesi, mülk sahibine rapor]
+    actors: [emlak ofisi, site yöneticisi, mülk yöneticisi]
+
+research_questions:
+  - Which tasks do real estate offices repeat by hand for every listing, client and rental?
+  - Where do listing portals and real estate software fail small offices?
+
+buyer_hypotheses:
+  - Offices with 2–10 agents pay monthly for tools that cut listing and client follow-up work.
+
+avoid:
+  - buyers' and tenants' complaints about landlords or agents
+  - property price news and "where to buy" articles
+  - job seekers' questions about certificates and salaries

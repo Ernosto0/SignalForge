@@ -1,0 +1,39 @@
+# Market scan plan: accounting offices (mali müşavirlik bürosu). See config/scan.yaml.
+request:
+  country: TR
+  industry: accounting
+  problem_area: null
+  target_customer: SMB and mid-size firms that can adopt a tool without an IT department
+  business_model: B2B SaaS (AI automation / workflow web app)
+  founder:
+    team: small team (2–3 developers)
+    budget: low
+    mvp_months: 3
+    preferred_tech: [AI, automation, web app]
+    min_customer_value_usd_month: 50
+  report_language: en
+  budget_usd: 0.14
+
+submarkets:
+  - name: Accounting offices
+    name_tr: Mali müşavirlik / muhasebe bürosu
+    terms: [müşteri evrak toplama, fatura girişi, banka ekstresi, mutabakat, e-defter, beyanname,
+            BA-BS formu, KDV beyannamesi, fiş kesme, cari hesap, muhasebe programı]
+    actors: [mali müşavir, SMMM, muhasebe bürosu, muhasebe elemanı, stajyer]
+  - name: Payroll and social security
+    name_tr: Bordro ve SGK işlemleri
+    terms: [bordro hazırlama, puantaj, SGK işe giriş bildirgesi, muhtasar ve prim hizmet
+            beyannamesi, izin takibi, fazla mesai hesabı]
+    actors: [bordro uzmanı, muhasebe bürosu, insan kaynakları sorumlusu]
+
+research_questions:
+  - Which recurring tasks do accounting offices still do by hand (collecting documents from clients, re-typing invoices, reconciling bank statements)?
+  - Where do accounting programs and e-document portals fail small offices?
+
+buyer_hypotheses:
+  - Accounting offices with 2–15 staff pay monthly for tools that cut data entry per client.
+
+avoid:
+  - students' and job seekers' questions (exams, salaries, internships)
+  - tax-law explainers and SEO blog posts
+  - consumer tax questions (individual tax returns)
