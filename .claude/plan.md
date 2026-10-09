@@ -110,6 +110,7 @@ request ─► [plan] ─► human edits plan.yaml
          [cluster]    LLM clustering, validated assignment                 ≤25 problem clusters
                 ▼
   ══ GATE 1 ══ evidence strength ≥ threshold AND ≥3 independent sources   ≤10 shortlisted
+               AND ≥2 independent sources with a software-fit signal (evidence/fit.py)
                 ▼                          (the rest → "insufficient evidence" list, kept in report)
          [verify]     bounded loop: targeted 2nd-round searches per problem (in Turkish),
                       entailment check of key claims                        ≤15 queries/problem
@@ -117,8 +118,10 @@ request ─► [plan] ─► human edits plan.yaml
          [competitors] bounded loop: find products, fetch home/pricing/docs/reviews,
                       extract features + prices as facts, build gap matrix  ≤5 competitors/problem
                 ▼
-         [commercial] buyer roles, budget owner, market breadth, economic model,
-                      WTP signals → opportunities (problem × segment × angle)
+         [buyers]     buyer roles, budget owner, channels, market breadth
+                      → opportunities (problem × segment × angle)
+                ▼
+         [monetization] economic model (ranges over dated assumptions), WTP signals
                 ▼
   ══ GATE 2 ══ knock-outs: no budget owner, value ceiling < min customer value
                 ▼
@@ -188,7 +191,8 @@ monitoring is possible without a schema rewrite.
 | shortlist | — | clusters → shortlist | Gate 1 (deterministic) |
 | verify | analysis + fast | problem → extra evidence, entailment-checked claims | step/fetch caps |
 | competitors | analysis | problem → competitors, feature/price facts, gap matrix | every matrix cell is a claim or `unknown` |
-| commercial | analysis | problem + evidence + competitors → opportunities, buyer roles, economic model, WTP | assumptions explicit; ranges only. *Open decision (§14):* agent-modules.md builds this as two stages, `buyers` + `monetization` |
+| buyers | analysis | problem + evidence + competitors → opportunities, buyer roles, channels, market breadth | every role cites a claim or is a labelled hypothesis |
+| monetization | analysis (+ code) | opportunity + evidence + competitor prices → economic model, WTP, Gate 2 | assumptions explicit; ranges only; code computes every number |
 | score | analysis (+ code) | opportunities → ScoreCards | §8 rules; uncited judgments capped |
 | report | synthesis | ScoreCards + claim table → report.json → md/html | citation validator (§7) |
 
@@ -196,8 +200,8 @@ Prompts live in `prompts/<stage>.md` with a version header; the version is recor
 
 Each stage belongs to exactly one agent module ([agent-modules.md §0.4](agent-modules.md#04-overview)):
 `plan` → planner; `query_gen`…`dedupe` → source_discovery; `extract`, `cluster` → problem_discovery;
-`shortlist`, `verify` → evidence_validator; `competitors` → competitor_research; `commercial` →
-buyer_research + monetization; `score` → opportunity_scorer; `report` → report_writer.
+`shortlist`, `verify` → evidence_validator; `competitors` → competitor_research; `buyers` →
+buyer_research; `monetization` → monetization; `score` → opportunity_scorer; `report` → report_writer.
 
 ---
 
@@ -325,7 +329,7 @@ Responses API).
 - Tiers mapped in config (`LLM_MODEL_*` env vars), not hard-coded. **During development every tier
   defaults to `gpt-6-luna`** ($0.10 / $0.50 per MTok) so iterating on prompts and stages stays cheap:
   - `fast`: triage, extraction, entailment, query gen
-  - `analysis`: clustering, verification, competitors, commercial, scoring
+  - `analysis`: clustering, verification, competitors, buyers, monetization, scoring
   - `synthesis`: final report
 - Stronger models are opt-in per tier via env, for quality-gate runs (M3 exit labeling, M7 evaluation)
   and for production defaults once we've measured what they buy on the replay fixtures (§11):
@@ -404,7 +408,7 @@ backend/
       runner.py          # ordering, resume, --from, budget enforcement
       context.py         # RunContext: db, llm, search, fetcher, pack, budget, cache mode
       stages/            # plan, query_gen, search, triage, fetch, extract, dedupe, cluster,
-                         # shortlist, verify, competitors, commercial, score, report
+                         # shortlist, verify, competitors, buyers, monetization, score, report
     domain/              # Pydantic models (stage I/O, plan.yaml schema, report.json schema)
     db/                  # base.py, session.py, migrations/ (Alembic)
     providers/           # llm.py, fetch.py, search/{base,serper,serpapi}.py, cache.py, urls.py
@@ -460,6 +464,17 @@ part 1 (`shortlist` / Gate 1).
 *Exit:* quote verification pass ≥ 95% of kept excerpts; on 50 labeled signals ≥ 70% are real first-hand
 B2B pain (tune until met). **This is the first test of the core thesis — don't proceed until a founder
 reading the landscape report finds it useful.**
+*Progress 2026-10-09:* a proxy review (Claude, not a human; `reports/m3-review-2026-10-09/`) labelled
+50 signals from the market-scan runs 7–13: 58% strict / 78% lenient real first-hand B2B pain, so the
+signal exit fails. The misses were how-to questions, legal case write-ups marked first-hand, generic
+job-ad duties and regulatory text with no recurring burden. Fixed in `extract` v4 / `verify_extract` v3:
+a fresh 50-signal sample from the re-run scan (runs 14, 16–21) gives 72% strict (narrow pass). Still
+open: logistics run 15 shortlists fleet-tracking device complaints at #1 (the model gives them
+`cause=tool`), portal FAQ pages and core secretary duties still yield signals. v5 (`extract` v5 / `verify_extract` v4,
+2026-10-10): 70% strict on a fresh sample (80% without regulatory signals); a proxy founder read found
+problems worth investigating (field/site attendance → payroll re-entry; bill-of-lading drafts). M3 is
+treated as passed on the proxy review; a human read is still recommended before M5's exit check. Open
+for M7: fleet tracking still passes Gate 1 with 3 of 6 sources fit; consider a fit-share rule.
 
 **M4 — Verification & competitors.** Bounded loops, entailment checks, competitor facts, gap matrix.
 *Progress 2026-10-06:* code done and tested with fake providers (`verify`, `competitors`, the shared
@@ -477,7 +492,7 @@ categories, founder fit, experiment selection.
 *Agents:* [buyer_research](agent-modules.md#6-agentsbuyer_researchpy--buyer-research) (`buyers`) ·
 [monetization](agent-modules.md#7-agentsmonetizationpy--monetization) (`monetization`, Gate 2) ·
 [opportunity_scorer](agent-modules.md#8-agentsopportunity_scorerpy--opportunity-scorer) (`score`).
-Settle the `commercial` split (§14) before starting.
+The `commercial` split is settled (§14, 2026-10-10): two stages, `buyers` + `monetization`.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.
@@ -514,4 +529,4 @@ platform adapters → V2 iterative autonomous research + embeddings → V3 conti
 | Per-run budget | $10 hard cap (estimate $3–8/run; measure in M7) |
 | Frontend stack | Next.js (App Router, TS, Tailwind) — scaffolded; `/api/*` proxied to FastAPI |
 | Project name / license | SignalForge (temporary) / Apache-2.0 |
-| Commercial analysis | Two stages, `buyers` + `monetization`, as in [agent-modules.md §6–7](agent-modules.md#6-agentsbuyer_researchpy--buyer-research), instead of the one `commercial` stage in §4/§6. Decide at the start of M5; merge back if M5 evaluation shows errors compounding. Once decided, update §4, §6 and §12 to match. |
+| Commercial analysis | **Decided 2026-10-10:** two stages, `buyers` + `monetization`, as in [agent-modules.md §6–7](agent-modules.md#6-agentsbuyer_researchpy--buyer-research). The narrow hand-off (cited buyer roles → economics) keeps each output checkable, and monetization's numbers come from code, not the model. Merge back into one stage if M5 evaluation shows errors compounding across the hand-off. §4, §6 and §12 updated. |

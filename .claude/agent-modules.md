@@ -318,8 +318,18 @@ SOURCE_DISCOVERY = Agent(
 **Writes.** `queries`, `search_results`, `url_candidates`, `documents` (full text in the page
 cache), `independence_groups` (`near_dup` / `syndicated`).
 
+**Software-shaped retarget (77f5b72, 2026-10-08).** `prompts/query_gen.md` is v6. The query mix
+is aimed at recurring manual work that a small team's software can address:
+- `intent_mix`: pain 0.55 / jobs 0.35 / regulatory 0.10.
+- `pain_signal_mix`: complaint 0.30 / workaround 0.25 / wish 0.20 / tool_complaint 0.15 /
+  price_signal 0.10.
+- `tool_complaint` queries cover software products only, not carriers, banks or devices.
+- Regulatory queries are only for obligations that create recurring paperwork.
+- Workaround queries avoid tutorial and template words.
+
 **Follow-ups found in M1/M2, to build in this agent:**
-- Re-tune `pain_signal_mix` from the per-query yield that M3 measures. Yield = signals kept per
+- Re-tune `pain_signal_mix` from the per-type yield of the market scan, and from the per-query
+  yield that M3 measures. Yield = signals kept per
   query, joined through `url_candidates.query_ids` → `documents` → `excerpts` → `signals`. Add
   `signalforge yield --run <id>` with a breakdown by `meta.signal_type`, `meta.source_hint` and
   `meta.origin`.
@@ -347,7 +357,8 @@ does not decide which problems are well evidenced; that is `evidence_validator`.
 actors) and the pack's signal-type definitions.
 
 **Writes.** `excerpts`, `signals`, and one `fact` Claim per signal
-(`supports=[excerpt_id]`, `stage="extract"`).
+(`supports=[excerpt_id]`, `stage="extract"`). `write_signals` stores each signal's software-fit
+facts in `Signal.meta["fit"]` (`evidence/fit.fit_facts`).
 
 **Model.** `fast` tier, prompt `prompts/extract.md`, one call per document chunk. Batch-eligible
 under `--batch` (plan §10).
@@ -364,15 +375,47 @@ class ExtractedSignal(BaseModel):
     first_hand: bool      # the writer describes their own work / company
     submarket: str | None # one of the plan's submarket names, or null
     author: str | None    # name/handle shown next to the quote, if any — hashed, never stored
+    # Software-fit facts (77f5b72). Required in the model schema; the Python defaults serve tests only.
+    recurring: bool               # the work or problem repeats (per order, file, day, month)
+    manual_task: str | None       # what people do by hand, English, a few words
+    data_kind: DataKind           # documents | messages | spreadsheets | forms | system_data | physical | none
+    cause: Cause                  # own_process | tool | third_party | regulation | hardware | other
 
 class ExtractedSignals(BaseModel):
     signals: list[ExtractedSignal]   # may be empty; empty is the right answer for most pages
 ```
 
-**Prompt content** (`prompts/extract.md`, v1):
+**Software fit** (`evidence/fit.py`). The model states the facts, and a configurable rule decides.
+That way the rule can be re-tuned without re-extracting. `software_fit(facts, cfg)` is true when:
+- the signal recurs (if `require_recurring`),
+- `data_kind` is in `data_kinds`, and
+- `cause` is in `causes`.
+
+Signals stored before the facts existed (`fit` is null) never fit.
+```yaml
+software_fit:
+  require_recurring: true
+  data_kinds: [documents, messages, spreadsheets, forms, system_data]
+  causes: [own_process, tool, regulation]
+```
+
+**Prompt content** (`prompts/extract.md`, v4; `prompts/verify_extract.md` v3 has the same type,
+exclusion and field docs):
+- The four software-fit facts above, with definitions. `data_kind`: appointments, records,
+  attendance and payroll data are `system_data`; `none` only when no information is handled.
 - Signal types with one Turkish and one English example each (plan §5).
 - Only B2B operational evidence counts. Consumer complaints, vendor marketing and SEO text give no
   signals. A vendor page can still give a `regulatory` signal if it quotes an official deadline.
+- v4 (2026-10-09, after the proxy M3 review in `reports/m3-review-2026-10-09/`):
+  - `labor_spend` needs a duty that names both what is handled and what is done to it. Not role
+    summaries, physical or customer-facing duties, or a bare "… takibi".
+  - `regulatory` needs an obligation in force (or with a fixed start date) that creates
+    recurring work. Not one-off option deadlines, drafts, or explanations of a law.
+  - Excluded:
+    - how-to questions, unless they describe a problem in the writer's work;
+    - court and authority decisions (KVKK), and law-firm, consultant or FAQ case write-ups.
+      These give at most a `regulatory` signal with `first_hand=false`;
+    - non-operational problems (sales, marketing, demand).
 - The quote must be copied exactly (no fixing typos, no joining sentences from different places)
   and be the shortest span that supports the statement.
 - `first_hand` is true only if the writer does the work themselves.
@@ -518,7 +561,11 @@ as `ProblemCluster.shortlisted` (bool) and `gate_trace` (JSON list of `{rule, va
 passed}`), not as the `status` / `gate` columns first planned. A shortlist re-run also clears
 `verification` (verify must re-run after a new Gate-1 decision).
 
-**Reads.** `problem_clusters` (`evidence_strength`, `independent_source_count`).
+**Reads.**
+- `problem_clusters` (`evidence_strength`, `independent_source_count`).
+- Signals with their software-fit facts and their independence units, via
+  `cluster.load_evidence` (`SignalItem.fit`).
+- The `software_fit` config, which is part of the stage's input hash.
 
 **Writes.** Per cluster: `shortlisted`, `gate_trace`; `verification = null`.
 
@@ -540,20 +587,30 @@ passed}`), not as the `status` / `gate` columns first planned. A shortlist re-ru
    The weights live in the `strength` block of `config/defaults.yaml` (moves to
    `scoring/config.yaml` in M5). `Strength.components` holds every component, stored in
    `ProblemCluster.strength`, so reports can explain the number.
-3. **Gate 1:** shortlisted when `evidence_strength ≥ min_strength` **and**
-   `n_independent ≥ min_independent_sources`. Among those that pass, keep the top `max_shortlisted`
+3. **Software-fit sources:** the independent sources with at least one software-fit signal
+   (`evidence/fit.software_fit`), counted as distinct independence units after duplicate,
+   same-author and same-quote collapse.
+4. **Gate 1:** shortlisted when all three hold:
+   - `evidence_strength ≥ min_strength`,
+   - `n_independent ≥ min_independent_sources`,
+   - `software_fit_sources ≥ min_software_fit_sources` (added in 77f5b72; 0 turns it off).
+
+   Strong evidence of a problem that software can't touch is not an opportunity. This rule appears
+   in `gate_trace` and in the landscape report. Among the clusters that pass, keep the top `max_shortlisted`
    by strength; any that pass but miss the cap get a failed `max_shortlisted` trace entry. Every
    cluster that fails is kept for the report's "insufficient evidence" list.
 
 **Config:**
 ```yaml
 shortlist:
-  min_strength: 5.0              # provisional; calibrate in M3 against labelled clusters
+  min_strength: 4.0              # provisional; calibrate on the first labelled runs
   min_independent_sources: 3
+  min_software_fit_sources: 2
   max_shortlisted: 10
 ```
 
-**Metrics:** clusters in, shortlisted, insufficient by reason (`strength` / `sources` / `cap`),
+**Metrics:** clusters in, shortlisted, insufficient by rule (`failed_by_rule`: `min_strength` /
+`min_independent_sources` / `min_software_fit_sources` / `max_shortlisted`),
 strength distribution, duplicate collapse from author grouping.
 
 ### 4.2 `verify` — bounded loop + entailment
@@ -631,6 +688,8 @@ def failed(entailment: str | None) -> bool    # not_supported | contradicted
 5. Per cluster: recompute strength over extract + new supporting signals, without counter signals
    and without signals whose fact failed entailment, with the new independence groups. Re-check
    Gate 1 on the new values, plus `min_key_claims_supported` (capped at the number of key claims).
+   The re-check (`regate`) does **not** repeat `min_software_fit_sources`: that rule is decided
+   once, at Gate 1.
 
 **Config:**
 ```yaml
@@ -840,11 +899,10 @@ segment the user, buyer, decision maker and economic beneficiary (plan §2, kept
 plus the budget owner, how reachable those buyers are, and how many companies have the problem. It
 proposes 1–3 **opportunities** (problem × segment × solution angle).
 
-> **Divergence from plan.md:** plan §6 merges buyer research, monetization and WTP into one
-> `commercial` stage, to limit error compounding. Here they are two agents with a narrow hand-off:
+> **Adopted in plan.md (2026-10-10, §14).** Plan §6 first merged buyer research, monetization and
+> WTP into one `commercial` stage, to limit error compounding. Here they are two agents with a narrow hand-off:
 > buyer_research writes `Opportunity` rows with cited buyer roles, and monetization only adds the
-> economics. If this split causes compounding errors in M5 evaluation, merge them back. On
-> adoption, update plan §4, §6 and §12 (`commercial` → `buyers` + `monetization`).
+> economics. If this split causes compounding errors in M5 evaluation, merge them back.
 
 **Stages.** `buyers` (`pipeline/stages/buyers.py`).
 
@@ -1307,7 +1365,7 @@ seeded uncited or hallucinated bullets in tests.
 |---|---|---|
 | `problem_clusters` | ✅ M3 (`c4d8e1f2a7b9`): `shortlisted` Bool, `gate_trace` JSONB, `strength` JSONB, `signal_type_mix`, `rank`; `claim_id` (`d5e9a2b3c4f6`) | evidence_validator (M3) |
 | `problem_clusters` | ✅ M4 (`e6f1a3b5c7d9`): `verification` JSONB nullable | evidence_validator (M4) |
-| `signals` | ✅ M3: `meta` JSONB default `{}` (`submarket`; verify adds `origin`, `problem_id`, `counter`) | problem_discovery, evidence_validator |
+| `signals` | ✅ M3: `meta` JSONB default `{}` (`submarket`, `fit` = software-fit facts; verify adds `origin`, `problem_id`, `counter`) | problem_discovery, evidence_validator |
 | `claims` | ✅ M4: `entailment` String(16) nullable, `meta` JSONB default `{}`, index on `(run_id, kind)` | evidence_validator (M4), monetization (M5) |
 | `documents` | ✅ M4: `origin` String(16) default `collect` (`collect` / `verify` / `competitor` / `buyers`), `problem_id` nullable FK (SET NULL) | loop agents (M4) |
 | `excerpts` | ✅ M4: `stage` String(32) default `extract` (each stage deletes only its own; cluster reads only `extract`) | loop agents (M4) |
@@ -1366,8 +1424,8 @@ showing in `signalforge status`.
   evidence_validator`, then `--agent competitor_research`, then `signalforge gaps`), and
   curating B2B software review / comparison domains into `sources.yaml` (category `reviews`)
   from live SERP probes.
-- **M5:** settle the `commercial` split ([plan.md §14](plan.md#14-open-decisions-defaults-chosen-change-here-if-needed))
-  first. Then the pack economics entries, `buyer_research`, `monetization`, and finally
+- **M5:** the `commercial` split is settled ([plan.md §14](plan.md#14-open-decisions-defaults-chosen-change-here-if-needed),
+  2026-10-10: `buyers` + `monetization`). Order: the pack economics entries, `buyer_research`, `monetization`, and finally
   `opportunity_scorer`.
 - **M6:** schema and validator first (test them against seeded bad bullets before any LLM call),
   then section generation and rendering.
