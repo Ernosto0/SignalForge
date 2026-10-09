@@ -25,10 +25,11 @@ class SourceEntry(BaseModel):
 class EconomicReference(BaseModel):
     name: str
     value: float
-    currency: str
+    currency: str | None  # None for non-money references (e.g. hours)
     unit: str
     as_of: date
     source_url: str
+    note: str | None = None  # what the number is (net/gross, sample, method)
 
 
 class OfficialSource(BaseModel):
@@ -89,6 +90,13 @@ class MarketPack(BaseModel):
     def tier_for(self, domain: str) -> Tier:
         entry = self.source_for(domain)
         return entry.tier if entry else self.default_tier
+
+    def economic(self, name: str) -> EconomicReference:
+        """economics.yaml entry by name; a missing entry (e.g. usd_try) fails loudly."""
+        for ref in self.economics:
+            if ref.name == name:
+                return ref
+        raise KeyError(f"market pack {self.id!r} has no economics entry {name!r}")
 
 
 def _read(path: Path) -> Any:

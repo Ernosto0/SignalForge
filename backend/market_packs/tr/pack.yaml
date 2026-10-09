@@ -1,6 +1,6 @@
 # Market pack: Turkey. Adding a country = adding a pack directory; no code changes expected.
 id: tr
-version: "0.1.1"
+version: "0.1.2"
 country: TR
 language: tr
 currency: TRY

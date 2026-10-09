@@ -1,12 +1,131 @@
 # Dated wage / cost references for economic models (plan §8, §15 of the review table).
 # Manually maintained. Every entry needs a source URL and an as_of date; never add an unsourced
-# number. Filled in during M1/M5.
+# number. Read by the monetization agent (agent-modules §7) via MarketPack.economic(name).
 #
-# Example shape:
-#   - name: minimum_wage_net_monthly
-#     value: 0
-#     currency: TRY
-#     unit: month
-#     as_of: 2026-01-01
-#     source_url: https://www.csgb.gov.tr/
-references: []
+# Units: "TRY/month", "TRY/USD", "hour/month". currency is null for non-money references.
+# Role wages are NET monthly (what kariyer.net reports); monetization applies the loaded-cost
+# multiplier. For reference, minimum wage employer cost / net = 40,214.03 / 28,075.50 ≈ 1.43.
+#
+# Role wages: one per role family seen in labor_spend signals (market-scan runs 7–21).
+# Not yet covered: general office secretary, data entry (kariyer.net blocked further fetches).
+references:
+  # --- FX ---------------------------------------------------------------------------------
+  - name: usd_try
+    value: 49.1274
+    currency: TRY
+    unit: TRY/USD
+    as_of: 2026-10-09
+    source_url: https://www.tcmb.gov.tr/kurlar/202610/09102026.xml
+    note: TCMB indicative rate, USD forex buying, bulletin 2026/191.
+
+  # --- Statutory ------------------------------------------------------------------------------
+  - name: minimum_wage_gross_monthly
+    value: 33030.00
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-01-01
+    source_url: https://kpmgvergi.com/yayinlar/mali-bultenler/sosyal-guvenlik/2026-yili-asgari-ucreti-aciklandi/3342
+    note: Valid 2026-01-01..2026-12-31 (Asgari Ücret Tespit Komisyonu 2025/1, RG 2025-12-26 no. 33119).
+  - name: minimum_wage_net_monthly
+    value: 28075.50
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-01-01
+    source_url: https://kpmgvergi.com/yayinlar/mali-bultenler/sosyal-guvenlik/2026-yili-asgari-ucreti-aciklandi/3342
+  - name: minimum_wage_employer_cost_monthly
+    value: 40214.03
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-01-01
+    source_url: https://kpmgvergi.com/yayinlar/mali-bultenler/sosyal-guvenlik/2026-yili-asgari-ucreti-aciklandi/3342
+    note: Total employer cost with the 2-point SGK incentive (non-manufacturing); 40,874.63 without incentive.
+  - name: working_hours_per_month
+    value: 195
+    currency: null
+    unit: hour/month
+    as_of: 2026-01-01
+    source_url: https://www.mevzuat.gov.tr/mevzuat?MevzuatNo=4857&MevzuatTur=1&MevzuatTertip=5
+    note: 45 h/week legal maximum (İş Kanunu 4857 md. 63) × 52 / 12. Use to turn monthly cost into hourly.
+
+  # --- Role wages (net monthly, kariyer.net) --------------------------------------------------
+  # kariyer.net figures are candidates' stated salary expectations (last 3 months) plus İşkolig
+  # survey answers: an upper-leaning market signal, not payroll data. value = 2026 average.
+  - name: wage_net_monthly_on_muhasebe_elemani
+    value: 47100
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/on+muhasebe+elemani/maas
+    note: Ön Muhasebe Elemanı, 120,103 people; range 37,700–125,000.
+  - name: wage_net_monthly_bordro_uzmani
+    value: 68900
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/bordro+uzmani/maas
+    note: Bordro Uzmanı, 9,800 people; range 55,100–250,000.
+  - name: wage_net_monthly_gumruk_musavir_yardimcisi
+    value: 77200
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/gumruk+musavir+yardimcisi/maas
+    note: Gümrük Müşavir Yardımcısı, 157 people (small sample); range 61,800–220,000.
+  - name: wage_net_monthly_ihracat_operasyon_uzmani
+    value: 68300
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/ihracat+operasyon+uzmani/maas
+    note: İhracat Operasyon Uzmanı, 10,318 people; range 54,600–250,000. Also covers dış ticaret operasyon roles.
+  - name: wage_net_monthly_lojistik_operasyon_uzmani
+    value: 60500
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/lojistik+operasyon+uzmani/maas
+    note: Lojistik Operasyon Uzmanı, 20,167 people; range 48,400–190,000.
+  - name: wage_net_monthly_tibbi_sekreter
+    value: 37100
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/tibbi+sekreter/maas
+    note: Tıbbi Sekreter, 13,419 people; range 29,700–80,000. Covers clinic secretaries.
+  - name: wage_net_monthly_hasta_kabul_gorevlisi
+    value: 37800
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/hasta+kabul+gorevlisi/maas
+    note: Hasta Kabul Görevlisi, 25,814 people; range 30,200–80,000.
+  - name: wage_net_monthly_hakedis_muhendisi
+    value: 106700
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/hakedis+muhendisi/maas
+    note: Hakediş Mühendisi, 2,458 people; range 85,300–300,000.
+  # The next three were read from the search engine's copy of the kariyer.net page (direct fetch
+  # was blocked, 403). Re-check against the page when it is reachable.
+  - name: wage_net_monthly_e_ticaret_operasyon_uzmani
+    value: 54300
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/e+ticaret+operasyon+uzmani/maas
+    note: E-Ticaret Operasyon Uzmanı, 2,947 people; range 43,400–150,000. Via search result, not fetched.
+  - name: wage_net_monthly_hasar_uzmani
+    value: 64700
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/hasar+uzmani/maas
+    note: Hasar Uzmanı (insurance claims), 5,721 people. Via search result, not fetched.
+  - name: wage_net_monthly_tahsilat_uzmani
+    value: 52106
+    currency: TRY
+    unit: TRY/month
+    as_of: 2026-10-10
+    source_url: https://www.kariyer.net/pozisyonlar/tahsilat+uzmani/maas
+    note: Tahsilat Uzmanı (collections, incl. rent collection), 2026 average; range 41,685–200,000. Via search result, not fetched.

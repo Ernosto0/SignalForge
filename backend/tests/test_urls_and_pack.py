@@ -1,3 +1,5 @@
+import pytest
+
 from signalforge.packs import load_pack
 from signalforge.providers.urls import canonicalize_url, domain_of
 
@@ -37,3 +39,17 @@ def test_tr_pack_loads_with_locale_and_registry() -> None:
     assert pack.tier_for("www.gib.gov.tr") == "high"
     assert pack.tier_for("rastgele-blog.com") == pack.default_tier
     assert pack.source_for("notgib.gov.tr") is None
+
+
+def test_tr_pack_economics_are_dated_and_sourced() -> None:
+    pack = load_pack("tr")
+
+    names = [r.name for r in pack.economics]
+    assert len(names) == len(set(names))
+    assert pack.economic("usd_try").unit == "TRY/USD"
+    assert any(n.startswith("wage_net_monthly_") for n in names)
+    for ref in pack.economics:
+        assert ref.value > 0 and ref.source_url.startswith("https://")
+        assert ref.currency == "TRY" or ref.unit == "hour/month"
+    with pytest.raises(KeyError):
+        pack.economic("no_such_entry")

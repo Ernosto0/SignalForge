@@ -1377,7 +1377,11 @@ Collection stages (`extract`, `dedupe`) read only `documents.origin = 'collect'`
 searches only collection intents, so loop rows never leak into a collection re-run.
 
 The pack also needs `economics.yaml` entries for `usd_try` and at least one wage reference per
-target role, each with `as_of` and `source_url` (M5).
+target role, each with `as_of` and `source_url` (M5). ✅ 2026-10-10 (pack tr 0.1.2): `usd_try`
+(TCMB), 2026 minimum wage net/gross/employer cost, `working_hours_per_month`, and net wages for 11
+role families seen in `labor_spend` signals (kariyer.net). Look entries up with
+`MarketPack.economic(name)`, which raises on a missing name. Employer cost / net is ≈ 1.43 at
+minimum wage, so the provisional `default_loaded_cost_multiplier: 1.3` (§7) is low.
 
 ---
 
