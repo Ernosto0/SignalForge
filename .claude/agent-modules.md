@@ -921,7 +921,8 @@ the work and often who they report to); competitor `segment` facts; gap inferenc
 Stored JSON shapes (claim ids are database ids):
 ```text
 buyer_roles    = {user|buyer|decision_maker|economic_beneficiary:
-                    {role, claim_ids, hypothesis, hypothesis_claim_id},
+                    {role, claim_ids, hypothesis, hypothesis_claim_id,
+                     entailment, entailment_note, rejected_claim_ids?},
                   budget_owner: null | {…same…}, gap_claim_ids: [...]}
 accessibility  = {channels: [{kind, name, claim_ids, cited}]}   # cited = claim_ids non-empty
 market_breadth = {hint: str | null, status: "not_searched"}
@@ -941,7 +942,8 @@ class BuyerRoles(BaseModel):
     buyer: RoleClaim
     decision_maker: RoleClaim
     economic_beneficiary: RoleClaim
-    budget_owner: RoleClaim | None     # null = no identifiable budget owner → Gate 2 knock-out
+    budget_owner: RoleClaim | None     # a hypothesis when unstated; null only when no one in
+                                       # the segment plausibly pays → Gate 2 knock-out
 
 class Channel(BaseModel):
     kind: Literal["association", "directory", "community", "marketplace", "event", "other"]
@@ -960,12 +962,19 @@ class BuyerAnalysis(BaseModel):
     opportunities: list[OpportunityDraft]   # 1–3 per problem
 ```
 
-**Prompt content** (`prompts/buyers.md`, v1):
+**Prompt content** (`prompts/buyers.md`, v2):
 - Input is a claim table (id, kind, statement), never raw text, so the model can only cite what
   exists.
 - One segment per opportunity, and segments must not overlap.
 - Prefer the request's `target_customer`.
-- A role is only a fact if a claim says it, e.g. a job ad saying "operasyon müdürüne bağlı".
+- A role is only a fact if a claim names it in that function, e.g. a job ad saying "operasyon
+  müdürüne bağlı". A complaint or a job ad's duty list states the user, not the buyer or the
+  economic beneficiary.
+- The economic beneficiary is a person or function, not the company.
+- v2 (2026-10-10): the budget owner is a hypothesis when the evidence is silent (in SMBs usually
+  "firma sahibi"); `null` only when no one plausibly pays. v1's "do not guess" left it null on 2
+  of 3 live opportunities, which Gate 2 would have knocked out for a prompt artefact.
+- List 1–4 real, specific channels; uncited ones are allowed and stored as `cited: false`.
 - The solution angle must be buildable as B2B SaaS and must name which gap it targets.
 - Do not invent statistics; fill `breadth_hint` instead.
 
@@ -988,7 +997,13 @@ class BuyerAnalysis(BaseModel):
    a citation are kept as `cited: false`. Drop opportunities whose segment duplicates another
    (`queries.Deduper`, `segment_dup_ratio`). Cap at `max_opportunities_per_problem`. A failed call
    leaves that problem without opportunities (counted); `BudgetExceeded` stops the stage.
-5. Write the `Opportunity` rows. Store `buyer_roles` with the claim ids, and create a `hypothesis`
+5. **Role check** (`entail_roles: true`): each role that cites facts is checked as one claim
+   (e.g. "A <role> approves purchases for this work: <problem>") against those facts' quotes,
+   with the `entailment` prompt on the fast tier. Quote verification and fact entailment only
+   prove a fact states its own statement, not that it names the role. A role that fails keeps its
+   non-fact citations, lists the facts under `rejected_claim_ids`, and becomes a hypothesis (its
+   claim text is the hypothesis if it had none). The facts' own `entailment` is not touched.
+6. Write the `Opportunity` rows. Store `buyer_roles` with the claim ids, and create a `hypothesis`
    claim for each role hypothesis (`meta.opportunity_id`, `meta.role`, derived from the role's
    citations) so the report can cite it.
 
@@ -1000,12 +1015,14 @@ buyers:
   segment_dup_ratio: 85         # queries.Deduper ratio for near-duplicate segments
   concurrency: 4
   max_output_tokens: 6000
+  entail_roles: true            # role check (step 5); batch size / tokens from `entailment`
+  role_quotes: 6                # quotes per role sent to the role check
   # breadth_queries / breadth_fetches: added when breadth search is built
 ```
 
 **Metrics:** opportunities per problem; roles backed by facts vs inferences vs hypotheses; budget
 owners identified (count); channels per opportunity (and cited); dropped opportunities by reason;
-invalid citations; failed calls; a `per_problem` list with each problem's reason. (Breadth found /
+invalid citations; failed calls; `role_check` (checked, verdicts, demoted); a `per_problem` list with each problem's reason. (Breadth found /
 unknown once breadth is built.)
 
 **Tests** (`tests/test_buyer_research.py`):
@@ -1015,7 +1032,8 @@ unknown once breadth is built.)
 - Duplicate segments collapse.
 - Also: failed-entailment, unshortlisted and verify-excluded facts stay out of the table; plan
   hypotheses are citable and labelled; a re-run is idempotent; `check_buyer_roles` flags a bad
-  role; one failed call doesn't fail the stage.
+  role; one failed call doesn't fail the stage; a role whose facts fail the role check becomes a
+  hypothesis and the exit check flags one that still cites them.
 
 **Done when.** Each opportunity's buyer roles can be traced to cited claims or are explicitly
 labelled hypotheses (part of the M5 exit). Checked by `evidence/opportunities.check_buyer_roles`.

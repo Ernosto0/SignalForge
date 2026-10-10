@@ -510,6 +510,14 @@ firms operating 5–50 trucks") and angles name their gaps, and Turkish role nam
 the model sometimes cites a fact that doesn't state the role (a complaint cited for the buyer), and
 uses a company ("nakliye firması") or the user as the economic beneficiary. Before `monetization`:
 consider entailment on role citations, and a prompt v2 for channels and beneficiaries.
+*Fix 2026-10-10:* `buyers` prompt v2 (budget owner as a hypothesis unless no one plausibly pays;
+1–4 specific channels; cite a claim only if it names the role in that function) plus a role
+check: each fact-citing role is entailment-checked against its facts' quotes and demoted to a
+hypothesis if they don't state it. Re-run on run 22: 3 budget owners of 3 (all "firma sahibi",
+hypotheses), 5 channels (UND, UTİKAD, LODER, Logitrans; uncited), roles 2 fact / 13 hypothesis,
+role check 0 of 2 demoted, `check_buyer_roles` empty, $0.0028. Roles now honestly rest on
+hypotheses where the evidence (complaints, job ads) names only the user; the scorer's confidence
+must reflect that. Next: `monetization`.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.

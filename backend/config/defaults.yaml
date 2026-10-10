@@ -252,3 +252,7 @@ buyers:
   segment_dup_ratio: 85
   concurrency: 4
   max_output_tokens: 6000
+  # Check that the facts a role cites state that role (entailment prompt, fast tier); a role
+  # whose facts fail becomes a hypothesis. Batch size and token cap come from `entailment`.
+  entail_roles: true
+  role_quotes: 6               # quotes per role sent to the check (from its cited facts)

@@ -15,7 +15,12 @@ Per shortlisted problem (after verify and competitors):
    ``monetization`` knocks it out). Gap citations must be this problem's gap inferences. Channels
    without a citation are kept as ``cited: false``. Near-duplicate segments collapse (first wins),
    then the list is capped.
-4. **Rows.** One ``Opportunity`` per kept draft, and one hypothesis claim per role hypothesis
+4. **Role check.** Quote verification and fact entailment prove a fact states *its own*
+   statement, not that it names a buyer role. Each role citing facts is checked as one claim
+   ("A <role> approves purchases for this work: <problem>") against those facts' quotes with the
+   ``entailment`` prompt. A role whose facts fail keeps only its non-fact citations and becomes a
+   hypothesis; the rejected facts stay listed under ``rejected_claim_ids``.
+5. **Rows.** One ``Opportunity`` per kept draft, and one hypothesis claim per role hypothesis
    (``meta.opportunity_id``, ``meta.role``) so the report can cite it. Market breadth is not
    searched yet: ``market_breadth = {hint, status: "not_searched"}``.
 """
@@ -35,7 +40,13 @@ from signalforge.domain.commercial import BuyerAnalysis, RoleClaim
 from signalforge.domain.plan import ResearchPlan
 from signalforge.evidence.claims import add_hypothesis, delete_stage_claims, fact_ids_by_excerpt
 from signalforge.evidence.clusters import cluster_signal_ids, verification
-from signalforge.evidence.entailment import failed
+from signalforge.evidence.entailment import (
+    ClaimEvidence,
+    EntailmentBatch,
+    check,
+    failed,
+    load_claim_evidence,
+)
 from signalforge.packs import MarketPack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult, load_run_plan
@@ -51,6 +62,14 @@ PLAN_ORIGIN = "plan"
 SIGNAL, PROBLEM, GAP, SEGMENT, PLAN_HYPOTHESIS = (
     "signal", "problem", "gap", "competitor_segment", "plan_hypothesis",
 )  # fmt: skip
+# What citing a fact for a role claims; checked against the facts' quotes (step 4).
+ROLE_CLAIMS = {
+    "user": "A {role} does this work: {problem}.",
+    "buyer": "A {role} chooses and buys tools for this work: {problem}.",
+    "decision_maker": "A {role} approves purchases for this work: {problem}.",
+    "economic_beneficiary": "A {role} gains when this work gets faster or cheaper: {problem}.",
+    "budget_owner": "A {role} pays for this work or the tools for it: {problem}.",
+}
 
 
 @dataclass(frozen=True)
@@ -209,6 +228,91 @@ def validate_analysis(
             Draft(segment, d.solution_angle.strip(), roles, basis, gaps, channels, d.breadth_hint)
         )
     return out
+
+
+@dataclass(frozen=True)
+class RoleCheck:
+    """One role that cites facts, as the claim that citation makes."""
+
+    draft: Draft
+    name: str  # one of ROLES
+    statement: str
+    fact_ids: list[int]
+
+
+def role_checks(
+    targets: list[Target], validated: dict[int, Validated], kinds: dict[int, str]
+) -> list[RoleCheck]:
+    out = []
+    for t in targets:
+        for d in validated[t.id].drafts:
+            for name, role in d.roles.items():
+                facts = [i for i in role["claim_ids"] if kinds.get(i) == "fact"] if role else []
+                if role and facts:
+                    statement = ROLE_CLAIMS[name].format(role=role["role"], problem=t.name)
+                    out.append(RoleCheck(d, name, statement, facts))
+    return out
+
+
+def apply_role_verdict(
+    rc: RoleCheck, verdict: str | None, note: str | None, kinds: dict[int, str]
+) -> bool:
+    """Record the verdict on the role. A failed one drops the role's fact citations (kept as
+    ``rejected_claim_ids``) and makes it a hypothesis. Returns whether the role was demoted."""
+    role = rc.draft.roles[rc.name]
+    assert role is not None
+    role["entailment"], role["entailment_note"] = verdict, note
+    if not failed(verdict):
+        return False
+    role["claim_ids"] = [i for i in role["claim_ids"] if i not in rc.fact_ids]
+    role["rejected_claim_ids"] = rc.fact_ids
+    role["hypothesis"] = role["hypothesis"] or rc.statement
+    rc.draft.basis[rc.name] = _basis({kinds[i] for i in role["claim_ids"]})
+    return True
+
+
+def entail_roles(ctx: RunContext, checks: list[RoleCheck], kinds: dict[int, str]) -> dict[str, int]:
+    """Check each role against the quotes of the facts it cites (fast tier, ``entailment``
+    prompt); apply the verdicts to the drafts. A role the model skips stays unchecked."""
+    if not checks:
+        return {"checked": 0}
+    ecfg = ctx.defaults.entailment
+    prompt = load_prompt("entailment")
+    fact_ids = {i for c in checks for i in c.fact_ids}
+    with ctx.db() as session:
+        quotes = {
+            e.claim_id: e.quotes
+            for e in load_claim_evidence(session, ctx.run_id, fact_ids, ecfg.max_quotes_per_claim)
+        }
+    items = [
+        ClaimEvidence(
+            n,
+            c.statement,
+            [q for i in c.fact_ids for q in quotes.get(i, [])][: ctx.defaults.buyers.role_quotes],
+        )
+        for n, c in enumerate(checks)
+    ]
+
+    def ask(prompt_input: str) -> tuple[EntailmentBatch, bool]:
+        result = ctx.llm.parse(
+            ModelTier.FAST,
+            prompt,
+            prompt_input,
+            EntailmentBatch,
+            stage=STAGE,
+            max_output_tokens=ecfg.max_output_tokens,
+        )
+        return result.output, result.cache_hit
+
+    verdicts, notes = check(items, ask, ecfg.batch_size)
+    counts: Counter[str] = Counter()
+    for n, c in enumerate(checks):
+        judged = verdicts.get(n)
+        verdict = judged.verdict if judged else None
+        counts[verdict or "unchecked"] += 1
+        counts["demoted"] += apply_role_verdict(c, verdict, judged.note if judged else None, kinds)
+    notes.pop("missing", None)  # counted as unchecked
+    return {"checked": len(checks), **counts, **notes}
 
 
 # --- database steps -------------------------------------------------------------------------
@@ -382,13 +486,19 @@ class Buyers:
         with ThreadPoolExecutor(max_workers=max(cfg.concurrency, 1)) as pool:
             answers = dict(zip([t.id for t in targets], pool.map(analyse, targets), strict=True))
 
+        validated = {
+            t.id: validate_analysis(a, tables[t.id], cfg) if (a := answers[t.id]) else Validated()
+            for t in targets
+        }
+        role_check: dict[str, int] = {}
+        if cfg.entail_roles:
+            kinds = {row.id: row.kind for rows in tables.values() for row in rows}
+            role_check = entail_roles(ctx, role_checks(targets, validated, kinds), kinds)
+
         per_problem = []
-        validated: dict[int, Validated] = {}
         with ctx.db.begin() as session:
             for t in targets:
-                answer = answers[t.id]
-                v = validate_analysis(answer, tables[t.id], cfg) if answer else Validated()
-                validated[t.id] = v
+                answer, v = answers[t.id], validated[t.id]
                 write_drafts(session, ctx.run_id, t.id, v.drafts)
                 reason = "ok"
                 if answer is None:
@@ -407,13 +517,14 @@ class Buyers:
                     }
                 )
 
-        metrics = buyer_metrics(validated, per_problem)
+        metrics = {**buyer_metrics(validated, per_problem), "role_check": role_check}
         input_hash = cache_key(
             {
                 "targets": [(t.id, t.claim_id, t.signal_ids) for t in targets],
                 "plan": plan.model_dump(mode="json"),
                 "config": cfg.model_dump(mode="json"),
-                "prompts": [prompt.ref],
+                "entailment": ctx.defaults.entailment.model_dump(mode="json"),
+                "prompts": [prompt.ref, load_prompt("entailment").ref],
             }
         )
         return StageResult(metrics=metrics, input_hash=input_hash)

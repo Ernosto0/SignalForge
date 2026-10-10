@@ -1,6 +1,6 @@
 ---
 id: buyers
-version: 1
+version: 2
 ---
 You decide who would buy a software solution to one business problem. The input gives the market,
 the industry, the research request's `target_customer`, the company types and roles the research
@@ -30,17 +30,27 @@ solution angle for this problem.
    and `budget_owner` (whose budget pays):
    - `role` is the title as it is used in the market's language (Turkish in Turkey), e.g.
      "operasyon müdürü", "firma sahibi", "muhasebe müdürü".
-   - `claim_ids` lists the numbers of the claims that **state** this role. A role is supported by
-     a claim only if the claim says it, e.g. a job ad for a "sevkiyat sorumlusu" that reports to
-     the "operasyon müdürü" supports both roles. Citing a `plan_hypothesis` keeps the role a
-     hypothesis.
+   - `claim_ids` lists the numbers of the claims that **name this role in this function**. A
+     job ad for a "sevkiyat sorumlusu" that reports to the "operasyon müdürü" states the user
+     (the clerk does the work) and that the manager oversees it; it does not state who buys
+     software or whose budget pays. A complaint by a truck operator states the user, not the
+     buyer. A job ad's duty list states the user, not the economic beneficiary. Citations are
+     checked against the quotes behind each claim; a role whose citations do not state it becomes
+     a hypothesis. Citing a `plan_hypothesis` keeps the role a hypothesis.
    - When no claim states the role, leave `claim_ids` empty and write your reasoning in
      `hypothesis` (one English sentence). A role must have claims, a hypothesis, or both.
-   - `budget_owner` is `null` when you cannot identify whose budget would pay. Do not guess: a
-     null budget owner is a valid answer.
-4. **Channels.** Where these buyers can be reached: associations, directories, communities,
-   marketplaces, events. Cite claims that name them; a channel you know of without a claim gets an
-   empty `claim_ids`.
+   - `economic_beneficiary` is a person or function whose results improve (e.g. "operasyon
+     müdürü" for fewer delays, "firma sahibi" for lower staff cost), not the company as a whole.
+   - `budget_owner`: whose budget pays. If no claim states it, give your best hypothesis: in a
+     small or medium company the owner ("firma sahibi") or general manager ("genel müdür")
+     usually pays for software; in a larger one, the head of the department that does the work.
+     `null` means **no one in the segment plausibly pays** (e.g. the work is done by individuals
+     outside any business budget). It knocks the opportunity out later, so use it only then, not
+     because the evidence is silent.
+4. **Channels.** List 1–4 places where these buyers can be reached: associations, directories,
+   communities, marketplaces, events. Cite claims that name them; a channel you know of without a
+   claim gets an empty `claim_ids`. Name real, specific places (e.g. "UND – Uluslararası
+   Nakliyeciler Derneği"), not generic ones ("LinkedIn", "industry events").
 5. **Breadth.** Never invent statistics (company counts, market sizes, percentages). In
    `breadth_hint`, name the official statistic that would count the segment's companies (e.g.
    "TÜİK count of road freight enterprises by employee size"), or `null`.

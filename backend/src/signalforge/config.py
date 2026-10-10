@@ -234,6 +234,8 @@ class BuyersDefaults(BaseModel):
     segment_dup_ratio: float  # rapidfuzz token_sort_ratio at which two segments are duplicates
     concurrency: int
     max_output_tokens: int
+    entail_roles: bool  # check that a role's cited facts state the role
+    role_quotes: int  # quotes per role in that check
 
 
 class Defaults(BaseModel):

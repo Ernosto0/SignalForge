@@ -1,5 +1,6 @@
 """The buyer-roles exit check (agent-modules.md §6, part of M5): every buyer role of every
-opportunity cites claims of the run that have not failed entailment, or a stored hypothesis claim.
+opportunity cites claims of the run that have not failed entailment, or a stored hypothesis claim,
+and a role that failed the role check no longer cites facts.
 
 The ``buyers`` stage enforces this when it writes; this check re-reads the stored rows, so a later
 edit or bug cannot slip through. A run without opportunities fails, so a run where buyers never
@@ -26,6 +27,10 @@ def role_problems(role: dict[str, Any], claims: dict[int, Claim]) -> list[str]:
             errors.append(f"cites claim {claim_id}, which is not in this run")
         elif failed(claim.entailment):
             errors.append(f"cites claim {claim_id}, which failed entailment ({claim.entailment})")
+    if failed(role.get("entailment")) and any(
+        claims[i].kind == "fact" for i in role.get("claim_ids") or [] if i in claims
+    ):
+        errors.append("still cites facts that failed the role check")
     hypothesis_id = role.get("hypothesis_claim_id")
     if hypothesis_id is not None:
         claim = claims.get(hypothesis_id)

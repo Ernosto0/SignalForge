@@ -13,7 +13,9 @@ ChannelKind = Literal["association", "directory", "community", "marketplace", "e
 
 class RoleClaim(BaseModel):
     role: str = Field(description="as named in the market, e.g. 'operasyon müdürü'")
-    claim_ids: list[int] = Field(description="numbers of table claims that state this role")
+    claim_ids: list[int] = Field(
+        description="numbers of table claims that name this role in this function"
+    )
     hypothesis: str | None = Field(
         default=None, description="English; required when claim_ids is empty"
     )
@@ -25,7 +27,8 @@ class BuyerRoles(BaseModel):
     decision_maker: RoleClaim
     economic_beneficiary: RoleClaim
     budget_owner: RoleClaim | None = Field(
-        description="null when no budget owner can be identified (do not guess)"
+        description="whose budget pays; a hypothesis when no claim states it; null only when "
+        "no one in the segment plausibly pays"
     )
 
 
@@ -40,7 +43,7 @@ class OpportunityDraft(BaseModel):
     solution_angle: str = Field(description="English, one sentence: what the B2B SaaS does")
     gap_claim_ids: list[int] = Field(description="numbers of the gap claims it targets")
     buyer_roles: BuyerRoles
-    channels: list[Channel]
+    channels: list[Channel] = Field(description="1–4 places to reach these buyers")
     breadth_hint: str | None = Field(
         description="what official statistic would count these companies, or null"
     )

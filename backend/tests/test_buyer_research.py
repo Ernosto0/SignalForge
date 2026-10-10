@@ -25,6 +25,7 @@ from signalforge.domain.commercial import (
     RoleClaim,
 )
 from signalforge.evidence.claims import add_fact, add_inference
+from signalforge.evidence.entailment import EntailmentBatch, EntailmentVerdict
 from signalforge.evidence.opportunities import check_buyer_roles
 from signalforge.pipeline.runner import create_run, run_stage
 from signalforge.pipeline.stages.buyers import (
@@ -32,7 +33,9 @@ from signalforge.pipeline.stages.buyers import (
     PLAN_HYPOTHESIS,
     SIGNAL,
     Buyers,
+    RoleCheck,
     TableRow,
+    apply_role_verdict,
     validate_analysis,
 )
 from signalforge.providers.llm import LLMError
@@ -351,3 +354,72 @@ def test_a_failed_call_leaves_one_problem_without_opportunities(db) -> None:
     assert row.status == "completed", row.error
     assert (row.metrics["opportunities"], row.metrics["llm_failures"]) == (2, 1)
     assert [p["reason"] for p in row.metrics["per_problem"]] == ["ok", "llm_error"]
+
+
+# --- role check -----------------------------------------------------------------------------
+
+
+def test_a_failed_role_check_keeps_non_fact_citations_and_makes_a_hypothesis() -> None:
+    kinds = {10: "fact", 12: "hypothesis"}
+    (draft,) = validate_analysis(
+        BuyerAnalysis(opportunities=[_opp("Carriers", _roles(buyer=_role("müdür", [1, 3])))]),
+        TABLE,
+        CFG,
+    ).drafts
+    rc = RoleCheck(draft, "buyer", "A müdür chooses and buys tools for this work: X.", [10])
+    assert draft.basis["buyer"] == "fact"
+    assert apply_role_verdict(rc, "not_supported", "names no buyer", kinds)
+    role = draft.roles["buyer"]
+    assert (role["claim_ids"], role["rejected_claim_ids"]) == ([12], [10])
+    assert role["hypothesis"] == rc.statement and role["entailment"] == "not_supported"
+    assert draft.basis["buyer"] == "hypothesis"
+    # Supported and unchecked roles keep their citations.
+    user = RoleCheck(draft, "user", "s", [10])
+    draft.roles["user"] = {"role": "u", "claim_ids": [10], "hypothesis": None}
+    assert not apply_role_verdict(user, "partial", "adds frequency", kinds)
+    assert not apply_role_verdict(user, None, None, kinds)
+    assert draft.roles["user"]["claim_ids"] == [10]
+
+
+def _reject_buyers(prompt_input: str) -> EntailmentBatch:
+    items = json.loads(prompt_input.split("# Claims\n", 1)[1])
+    return EntailmentBatch(verdicts=[
+        EntailmentVerdict(item=i["item"], note="n",
+                          verdict="not_supported" if "chooses and buys" in i["claim"]
+                          else "supported")
+        for i in items
+    ])  # fmt: skip
+
+
+def test_buyers_stage_demotes_a_role_its_facts_do_not_state(db) -> None:
+    run_id = create_run(db, PLAN, PACK, DEFAULTS)
+    ids = _seed(db, run_id)
+    llm = FakeLLM({BuyerAnalysis: _analysis([]), EntailmentBatch: _reject_buyers})
+    row = run_stage(make_context(db, run_id, NoSearch(), llm), Buyers())
+    assert row.status == "completed", row.error
+    # Only the road opportunity's user and buyer cite facts (the job ad); the buyer fails.
+    check = row.metrics["role_check"]
+    assert (check["checked"], check["supported"], check["not_supported"]) == (2, 1, 1)
+    assert check["demoted"] == 1
+    assert row.metrics["roles"]["fact"] == 1
+    with db() as session:
+        road = session.scalars(select(Opportunity).order_by(Opportunity.id)).first()
+        claims = {c.id: c for c in session.scalars(select(Claim))}
+        assert check_buyer_roles(session, run_id) == []
+    buyer, user = road.buyer_roles["buyer"], road.buyer_roles["user"]
+    assert (buyer["claim_ids"], buyer["rejected_claim_ids"]) == ([], [ids["job_fact"]])
+    assert buyer["hypothesis"].startswith("A operasyon müdürü chooses and buys tools")
+    assert claims[buyer["hypothesis_claim_id"]].kind == "hypothesis"
+    assert (user["claim_ids"], user["entailment"]) == ([ids["job_fact"]], "supported")
+    # The fact itself keeps its own entailment verdict: the role check is about the role.
+    assert claims[ids["job_fact"]].entailment is None
+
+    # The exit check catches a failed role that still cites its facts.
+    with db.begin() as session:
+        opp = session.get(Opportunity, road.id)
+        roles = json.loads(json.dumps(opp.buyer_roles))
+        roles["buyer"]["claim_ids"] = [ids["job_fact"]]
+        opp.buyer_roles = roles
+    with db() as session:
+        assert any("buyer: still cites facts that failed the role check" in e
+                   for e in check_buyer_roles(session, run_id))  # fmt: skip

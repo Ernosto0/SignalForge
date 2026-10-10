@@ -369,7 +369,9 @@ def _stage_line(row: StageRun) -> str:
             + _counts_text(m["roles"], ("fact", "inference", "hypothesis"))
             + f"  ·  {m['budget_owners']} budget owners  ·  {m['channels']} channels "
             f"({m['channels_cited']} cited)  ·  {sum(m['dropped'].values())} dropped, "
-            f"{m['invalid_citations']} bad citations, {m['llm_failures']} failed calls"
+            f"{m['invalid_citations']} bad citations, {m['llm_failures']} failed calls  ·  "
+            f"role check: {m.get('role_check', {}).get('demoted', 0)} of "
+            f"{m.get('role_check', {}).get('checked', 0)} demoted"
         ),
     }.get(row.stage)
     took = (row.finished_at - row.started_at).total_seconds() if row.finished_at else 0
