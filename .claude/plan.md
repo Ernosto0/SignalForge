@@ -518,6 +518,15 @@ hypotheses), 5 channels (UND, UTİKAD, LODER, Logitrans; uncited), roles 2 fact 
 role check 0 of 2 demoted, `check_buyer_roles` empty, $0.0028. Roles now honestly rest on
 hypotheses where the evidence (complaints, job ads) names only the user; the scorer's confidence
 must reflect that. Next: `monetization`.
+*Progress 2026-10-10:* `monetization` built and tested (`scoring/economics.py` interval
+arithmetic; exit check `evidence/opportunities.check_economic_models`). Wages from the pack become
+hourly employer cost via `loaded_cost_multiplier` 1.43–1.65; only pack values count as sourced
+(model ranges citing job ads are estimates). Live on run 22 ($0.0021): 3 valid `labor_savings`
+models; forwarders $153–471/month value, ceiling $15–141 → passed; warehouse $90–313, ceiling
+$9–94 → passed; road freight $27–83, ceiling $3–25 → knocked out (`value_below_minimum`, < $50).
+Sourced share 50% (the wages); both exit checks empty. Weak spots: hours saved are the model's
+guesses; the competitor price anchor's `min` picks up per-vehicle/add-on prices (median is
+saner). Next: `opportunity_scorer`.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.

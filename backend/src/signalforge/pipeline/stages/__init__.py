@@ -13,6 +13,7 @@ from signalforge.pipeline.stages.competitors import Competitors
 from signalforge.pipeline.stages.dedupe import Dedupe
 from signalforge.pipeline.stages.extract import Extract
 from signalforge.pipeline.stages.fetch import Fetch
+from signalforge.pipeline.stages.monetization import Monetization
 from signalforge.pipeline.stages.query_gen import QueryGen
 from signalforge.pipeline.stages.search import Search
 from signalforge.pipeline.stages.shortlist import Shortlist
@@ -31,6 +32,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "STAGES", "Buyers", "Cluster", "Competitors", "Dedupe", "Extract", "Fetch", "QueryGen",
-    "Search", "Shortlist", "Triage", "Verify",
+    "STAGES", "Buyers", "Cluster", "Competitors", "Dedupe", "Extract", "Fetch", "Monetization",
+    "QueryGen", "Search", "Shortlist", "Triage", "Verify",
 ]  # fmt: skip

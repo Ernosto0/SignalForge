@@ -116,10 +116,10 @@ Milestones refer to [plan.md §13](plan.md#13-milestones-each-with-an-exit-crite
 | 1 | `planner.py` | `plan` (outside a run) | analysis | no | M1 | to build |
 | 2 | `source_discovery.py` | `query_gen`, `search`, `triage`, `fetch`, `dedupe` | fast | no | M1 (`query_gen`), M2 (rest) | ✅ stages built; add agent wrapper |
 | 3 | `problem_discovery.py` | `extract`, `cluster` | fast / analysis | no | M3 | to build |
-| 4 | `evidence_validator.py` | `shortlist` (Gate 1), `verify` | fast / analysis | **yes** (`verify`) | M3 (`shortlist`), M4 (`verify`) | ✅ built (M4 live run pending) |
-| 5 | `competitor_research.py` | `competitors` | analysis | **yes** | M4 | ✅ built (M4 live run pending) |
-| 6 | `buyer_research.py` | `buyers` | analysis | no | M5 | to build |
-| 7 | `monetization.py` | `monetization` (Gate 2) | analysis + code | no | M5 | to build |
+| 4 | `evidence_validator.py` | `shortlist` (Gate 1), `verify` | fast / analysis | **yes** (`verify`) | M3 (`shortlist`), M4 (`verify`) | ✅ built, live on run 22 |
+| 5 | `competitor_research.py` | `competitors` | analysis | **yes** | M4 | ✅ built, live on run 22 |
+| 6 | `buyer_research.py` | `buyers` | analysis | no | M5 | ✅ built, live on run 22 |
+| 7 | `monetization.py` | `monetization` (Gate 2) | analysis + code | no | M5 | ✅ built, live on run 22 |
 | 8 | `opportunity_scorer.py` | `score` | analysis + code | no | M5 | to build |
 | 9 | `report_writer.py` | `report` | synthesis | no | M6 | to build |
 
@@ -1059,8 +1059,10 @@ willingness-to-pay signals, and knock out opportunities that cannot pay (Gate 2)
 **Writes.**
 - `Opportunity.economic_model`, `Opportunity.wtp_signals`, and the new columns `status`
   (`passed` | `knocked_out`) and `knockouts` (JSON list of `{rule, detail}`).
-- `assumption` claims with the new `Claim.meta` JSON: `{name, value_low, value_high, unit,
-  currency, as_of, source_url | null, sourced: bool}`.
+- `assumption` claims (`stage="monetization"`, `derived_from` = cited claims) with the new
+  `Claim.meta` JSON: `{name, value_low, value_high, unit, currency, as_of, source_url | null,
+  sourced: bool, pack_reference, derivation?}`. `derivation` records a wage → hourly conversion
+  (wage reference, multiplier, hours reference) or a USD → local conversion (rate, date, URL).
 
 **Model.** `analysis` tier, prompt `prompts/monetization.md`, one call per opportunity. The model
 chooses the value **drivers** and their ranges with citations. **Code** computes every number
@@ -1082,11 +1084,10 @@ class ValueModelDraft(BaseModel):
     formula: Literal["labor_savings", "error_cost_avoided", "revenue_recovered", "compliance_cost"]
     assumptions: list[AssumptionDraft]   # must cover the formula's required inputs
 
-class WTPSignal(BaseModel):
-    kind: Literal["competitor_price", "labor_spend", "price_signal", "paid_workaround"]
-    claim_id: int
-    note: str
 ```
+WTP signals are built in code (no schema): `{kind: competitor_price | labor_spend | price_signal,
+claim_id, note}`. `paid_workaround` is not built: it needs a reliable rule for "a workaround that
+costs money" (e.g. outsourced data entry).
 
 **Formulas** (`scoring/economics.py`; inputs from the assumptions; low/high propagate through
 interval arithmetic):
@@ -1102,20 +1103,34 @@ competitor_anchor   = min/median of observed competitor prices (converted, dated
 ```
 
 **Algorithm, per opportunity:**
-1. Build the claim table: the problem's facts, competitor price facts, and pack references (each
-   rendered as `name = value unit, as_of, source_url`).
+1. Build the claim table: the problem's counted signal facts (shared helper
+   `buyers.counted_signal_facts`; job ads and price signals first, capped at
+   `max_claims_per_opportunity`) and its competitors' price facts (one row per `pricing` entry).
+   Pack references (except `usd_try`) are listed by name with value, unit, date and note, and the
+   opportunity's segment, angle and role titles go in too (the user role picks the wage).
 2. Call the model → `ValueModelDraft`.
 3. **Validate:**
    - The formula's required inputs are present.
    - `low ≤ high`, and units match the formula.
-   - A cited `pack_reference` exists, and the value then comes **from the pack, not the model**.
-   - Every assumption without citation or pack reference becomes `sourced=false`.
-   - Currencies are known, and money values have a date.
+   - A cited `pack_reference` exists, and the value then comes **from the pack, not the model**:
+     as-is when the reference has the input's unit; for `loaded_hourly_cost`, a net monthly wage
+     × `loaded_cost_multiplier` ÷ `working_hours_per_month`. An unknown or unfitting reference
+     falls back to the model's range (counted).
+   - **Only pack values are `sourced`.** A model range is `sourced=false` even when it cites
+     claims: on run 22 every `hours_saved_per_month` cited job ads that show the work exists but
+     state no hours, which made "100% sourced" meaningless. Citations stay as context
+     (`derived_from`).
+   - Currencies are the pack's or USD (converted at the dated `usd_try`, recorded in
+     `derivation`); money values are dated (pack `as_of`, else the run's date). Fractions ≤ 1.
+   - One bad input invalidates the model: `economic_model = {status: "invalid", errors}`; a failed
+     call stores `{status: "llm_error"}`. Either way Gate 2 still applies its budget-owner rule.
 4. Compute the economic model in code and store
-   `{formula, inputs: {name: assumption_claim_id}, value_local: [lo, hi], currency, value_usd_month: [lo, hi], fx: {rate, as_of, source_url}, price_ceiling_usd_month: [lo, hi], competitor_anchor_usd_month}`.
+   `{status: "ok", formula, inputs: {name: assumption_claim_id}, value_local: [lo, hi], currency, value_usd_month: [lo, hi], fx: {rate, as_of, source_url}, capture_share: [lo, hi], price_ceiling_usd_month: [lo, hi], competitor_anchor_usd_month}`.
+   The anchor is `{min, median, n, claim_ids, per_user_prices}` over prices convertible to USD per
+   month (`month`, `per_user_month`, `year`/12; `one_time`, `per_document`, `unknown` are left
+   out), or null. Its `min` can be a per-vehicle or add-on price; prefer the median.
 5. **WTP signals** (deterministic): competitor prices for this problem, `labor_spend` signals,
-   `price_signal` signals, and workarounds that cost money (e.g. outsourced data entry). Each one
-   cites a claim.
+   `price_signal` signals. Each one cites a claim. (Paid workarounds: not built, see above.)
 6. **Gate 2** (plan §4):
    - `no_budget_owner`: `buyer_roles.budget_owner` is null.
    - `value_below_minimum`: `price_ceiling_usd_month.high < founder.min_customer_value_usd_month`.
@@ -1126,23 +1141,32 @@ competitor_anchor   = min/median of observed competitor prices (converted, dated
 ```yaml
 monetization:
   capture_share: { low: 0.10, high: 0.30 }
-  default_loaded_cost_multiplier: 1.3     # applied to net wage references; provisional
+  # Net wage → employer cost. low = TR 2026 minimum-wage employer cost / net (≈ 1.43, pack);
+  # high provisional (income tax raises it above minimum wage).
+  loaded_cost_multiplier: { low: 1.43, high: 1.65 }
+  max_claims_per_opportunity: 60
+  concurrency: 4
   max_output_tokens: 4000
 ```
 
 **Metrics:** opportunities in, passed, knocked out by rule; share of sourced assumptions;
-value-range width (high/low); opportunities with a competitor price anchor.
+value-range width (high/low); opportunities with a competitor price anchor; models by status
+(ok / invalid / llm_error) and invalid inputs by name; invalid citations; pack-reference issues;
+a `per_opportunity` list.
 
 **Tests** (`tests/test_monetization.py`):
 - Interval arithmetic for each formula.
 - The USD conversion uses the dated rate and records it.
 - A pack reference overrides a model value.
-- An unsourced assumption is marked `sourced=false`.
+- An unsourced assumption is marked `sourced=false`, including a model range that cites claims.
+- Bad units, unordered ranges and fractions above 1 invalidate the model; a failed call still
+  gets Gate 2; the stage writes models, WTP signals and Gate 2, re-runs idempotently, and
+  `check_economic_models` is empty on a good run and flags tampered rows.
 - Both Gate 2 rules fire on fixtures.
 - A missing `usd_try` entry fails loudly.
 
 **Done when.** Every number in an economic model traces to an assumption claim with a source or an
-"unsourced" label (part of the M5 exit).
+"unsourced" label (part of the M5 exit). Checked by `evidence/opportunities.check_economic_models`.
 
 ---
 
@@ -1423,7 +1447,7 @@ target role, each with `as_of` and `source_url` (M5). ✅ 2026-10-10 (pack tr 0.
 (TCMB), 2026 minimum wage net/gross/employer cost, `working_hours_per_month`, and net wages for 11
 role families seen in `labor_spend` signals (kariyer.net). Look entries up with
 `MarketPack.economic(name)`, which raises on a missing name. Employer cost / net is ≈ 1.43 at
-minimum wage, so the provisional `default_loaded_cost_multiplier: 1.3` (§7) is low.
+minimum wage, so §7 now uses `loaded_cost_multiplier: {low: 1.43, high: 1.65}` instead of 1.3.
 
 ---
 

@@ -53,3 +53,28 @@ class BuyerAnalysis(BaseModel):
     """Output of ``buyers``: 1–3 opportunities for one problem."""
 
     opportunities: list[OpportunityDraft]
+
+
+# --- monetization (agent-modules.md §7) -----------------------------------------------------
+
+Formula = Literal["labor_savings", "error_cost_avoided", "revenue_recovered", "compliance_cost"]
+
+
+class AssumptionDraft(BaseModel):
+    name: str = Field(description="one of the formula's inputs, e.g. 'hours_saved_per_month'")
+    low: float
+    high: float
+    unit: str = Field(description="the input's unit, e.g. 'hour/month', 'TRY/hour', 'fraction'")
+    currency: str | None = Field(default=None, description="for money units: 'TRY' or 'USD'")
+    claim_ids: list[int] = Field(description="numbers of table claims it rests on, or []")
+    pack_reference: str | None = Field(
+        default=None, description="name of a pack reference it takes its value from, or null"
+    )
+    rationale: str = Field(description="English, ≤ 30 words: why this range")
+
+
+class ValueModelDraft(BaseModel):
+    """Output of ``monetization``: one value model for one opportunity."""
+
+    formula: Formula
+    assumptions: list[AssumptionDraft] = Field(description="one per formula input")

@@ -238,6 +238,19 @@ class BuyersDefaults(BaseModel):
     role_quotes: int  # quotes per role in that check
 
 
+class Range(BaseModel):
+    low: float
+    high: float
+
+
+class MonetizationDefaults(BaseModel):
+    capture_share: Range  # share of monthly value a product can charge
+    loaded_cost_multiplier: Range  # net wage -> employer cost
+    max_claims_per_opportunity: int  # signal facts in the prompt's claim table
+    concurrency: int
+    max_output_tokens: int
+
+
 class Defaults(BaseModel):
     """Typed view of config/defaults.yaml."""
 
@@ -259,6 +272,7 @@ class Defaults(BaseModel):
     entailment: EntailmentDefaults
     competitors: CompetitorsDefaults
     buyers: BuyersDefaults
+    monetization: MonetizationDefaults
 
 
 @lru_cache

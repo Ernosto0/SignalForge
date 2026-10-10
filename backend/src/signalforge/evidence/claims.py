@@ -110,6 +110,34 @@ def add_hypothesis(
     )
 
 
+def add_assumption(
+    session: Session,
+    run_id: int,
+    statement: str,
+    *,
+    stage: str,
+    meta: dict[str, Any],
+    claim_ids: Iterable[int] = (),
+) -> Claim:
+    """A numeric input to an economic model. ``meta`` holds ``name``, ``value_low``,
+    ``value_high``, ``unit``, ``currency``, ``as_of``, ``source_url`` and ``sourced``."""
+    missing = {"name", "value_low", "value_high", "unit", "sourced"} - meta.keys()
+    if missing:
+        raise ValueError(f"assumption meta lacks {sorted(missing)}")
+    return _add(
+        session,
+        Claim(
+            run_id=run_id,
+            kind="assumption",
+            statement=statement,
+            supports=[],
+            derived_from=sorted(set(claim_ids)),
+            stage=stage,
+            meta=meta,
+        ),
+    )
+
+
 def delete_stage_claims(session: Session, run_id: int, stage: str) -> None:
     """Remove the claims a stage wrote for a run (stages are idempotent, agent-modules §0.3)."""
     session.execute(delete(Claim).where(Claim.run_id == run_id, Claim.stage == stage))

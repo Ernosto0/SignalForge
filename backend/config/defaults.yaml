@@ -256,3 +256,18 @@ buyers:
   # whose facts fail becomes a hypothesis. Batch size and token cap come from `entailment`.
   entail_roles: true
   role_quotes: 6               # quotes per role sent to the check (from its cited facts)
+
+# What solving the problem is worth to one customer per month, as a range over dated assumption
+# claims (plan §2 #15); code computes every number (scoring/economics.py). Gate 2 knocks out
+# opportunities with no budget owner or whose price ceiling is below the founder's minimum.
+monetization:
+  # Share of the monthly value a product can charge (price ceiling = value × share).
+  capture_share: { low: 0.10, high: 0.30 }
+  # Net wage → employer cost. low: 2026 TR minimum wage employer cost / net (40,214.03 /
+  # 28,075.50, market_packs/tr/economics.yaml); high: provisional (income tax brackets raise the
+  # ratio above minimum wage). Re-check per market pack.
+  loaded_cost_multiplier: { low: 1.43, high: 1.65 }
+  # Signal facts in one opportunity's claim table (job ads and price signals first).
+  max_claims_per_opportunity: 60
+  concurrency: 4
+  max_output_tokens: 4000

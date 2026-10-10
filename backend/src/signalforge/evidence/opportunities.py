@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from signalforge.db.models import Claim, Opportunity
 from signalforge.evidence.entailment import failed
+from signalforge.scoring.economics import FORMULAS
 
 REQUIRED_ROLES = ("user", "buyer", "decision_maker", "economic_beneficiary")
 
@@ -65,4 +66,44 @@ def check_buyer_roles(session: Session, run_id: int) -> list[str]:
         for claim_id in roles.get("gap_claim_ids") or []:
             if claim_id not in claims:
                 errors.append(f"opportunity {o.id}: gap claim {claim_id} is not in this run")
+    return errors
+
+
+def check_economic_models(session: Session, run_id: int) -> list[str]:
+    """Violations of the monetization rule (agent-modules.md §7, part of M5): every opportunity
+    was judged by Gate 2, and every number in a valid economic model traces to an assumption claim
+    of the run that has a source URL (a pack reference) or is labelled unsourced."""
+    opportunities = session.scalars(
+        select(Opportunity).where(Opportunity.run_id == run_id).order_by(Opportunity.id)
+    ).all()
+    if not opportunities:
+        return [f"run {run_id} has no opportunities; run buyers first"]
+    claims = {c.id: c for c in session.scalars(select(Claim).where(Claim.run_id == run_id))}
+    errors = []
+    for o in opportunities:
+        where = f"opportunity {o.id} ({o.segment})"
+        if o.status not in ("passed", "knocked_out"):
+            errors.append(f"{where}: not judged by Gate 2 (status {o.status!r})")
+        model = o.economic_model or {}
+        if model.get("status") != "ok":
+            continue
+        inputs = model.get("inputs") or {}
+        expected = {i.name for i in FORMULAS.get(model.get("formula", ""), ())}
+        if not expected or set(inputs) != expected:
+            errors.append(f"{where}: inputs {sorted(inputs)} do not match {model.get('formula')}")
+        for name, claim_id in inputs.items():
+            claim = claims.get(claim_id)
+            if claim is None or claim.kind != "assumption":
+                errors.append(f"{where}, {name}: claim {claim_id} is not an assumption of the run")
+                continue
+            meta = claim.meta or {}
+            if not isinstance(meta.get("sourced"), bool):
+                errors.append(f"{where}, {name}: no sourced/unsourced label")
+            elif meta["sourced"] and not meta.get("source_url"):
+                errors.append(f"{where}, {name}: labelled sourced without a source")
+            if meta.get("currency") and not meta.get("as_of"):
+                errors.append(f"{where}, {name}: money value without a date")
+        fx = model.get("fx") or {}
+        if not (fx.get("rate") and fx.get("as_of") and fx.get("source_url")):
+            errors.append(f"{where}: exchange rate without a date or source")
     return errors

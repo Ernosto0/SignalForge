@@ -352,21 +352,42 @@ def load_targets(ctx: RunContext) -> list[Target]:
         ]
 
 
+def counted_signal_facts(
+    session: Session, run_id: int, targets: list[Target]
+) -> dict[int, list[tuple[Signal, Claim]]]:
+    """Per problem: its counted signals with their fact claims (extract + verify), in signal
+    order; signals whose fact failed entailment are left out. Shared with ``monetization``."""
+    facts = {
+        **fact_ids_by_excerpt(session, run_id, "extract"),
+        **fact_ids_by_excerpt(session, run_id, "verify"),
+    }
+    signal_ids = sorted({i for t in targets for i in t.signal_ids})
+    signals = {s.id: s for s in session.scalars(select(Signal).where(Signal.id.in_(signal_ids)))}
+    claims = {
+        c.id: c
+        for c in session.scalars(select(Claim).where(Claim.id.in_(list(set(facts.values())))))
+    }
+    out: dict[int, list[tuple[Signal, Claim]]] = {}
+    for t in targets:
+        out[t.id] = []
+        for sid in t.signal_ids:
+            s = signals.get(sid)
+            fact = claims.get(facts.get(s.excerpt_id, -1)) if s is not None else None
+            if s is not None and fact is not None and not failed(fact.entailment):
+                out[t.id].append((s, fact))
+    return out
+
+
 def claim_tables(
     session: Session, run_id: int, targets: list[Target], cfg: BuyersDefaults
 ) -> dict[int, list[TableRow]]:
     """Per problem: its inference, counted signal facts (capped), gap inferences, competitor
     segment facts, then the plan's buyer hypotheses. Facts that failed entailment are left out."""
-    facts = {
-        **fact_ids_by_excerpt(session, run_id, "extract"),
-        **fact_ids_by_excerpt(session, run_id, "verify"),
-    }
     claims = {
         c.id: c
         for c in session.scalars(select(Claim).where(Claim.run_id == run_id).order_by(Claim.id))
     }
-    signal_ids = sorted({i for t in targets for i in t.signal_ids})
-    signals = {s.id: s for s in session.scalars(select(Signal).where(Signal.id.in_(signal_ids)))}
+    signal_facts = counted_signal_facts(session, run_id, targets)
     competitor_problem = dict(
         session.execute(
             select(Competitor.id, Competitor.problem_id).where(Competitor.run_id == run_id)
@@ -386,17 +407,12 @@ def claim_tables(
         table: list[TableRow] = []
         if t.claim_id is not None and t.claim_id in claims:
             table.append(row(claims[t.claim_id], PROBLEM))
-        counted = []
-        for sid in t.signal_ids:
-            s = signals.get(sid)
-            fact = claims.get(facts.get(s.excerpt_id, -1)) if s is not None else None
-            if s is None or fact is None or failed(fact.entailment):
-                continue
-            counted.append((signal_order(s.type, s.first_hand, s.id), fact, s))
-        counted.sort(key=lambda x: x[0])
+        counted = sorted(
+            signal_facts[t.id], key=lambda sf: signal_order(sf[0].type, sf[0].first_hand, sf[0].id)
+        )
         table += [
             row(fact, SIGNAL, signal_type=s.type, actor=s.actor)
-            for _, fact, s in counted[: cfg.max_claims_per_problem]
+            for s, fact in counted[: cfg.max_claims_per_problem]
         ]
         gaps, segments = [], []
         for c in claims.values():
