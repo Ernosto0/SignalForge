@@ -7,6 +7,7 @@ grouping (``same_author``) happens in extract once authors are known.
 
 from typing import Any
 
+from signalforge.pipeline.stages.buyers import Buyers
 from signalforge.pipeline.stages.cluster import Cluster
 from signalforge.pipeline.stages.competitors import Competitors
 from signalforge.pipeline.stages.dedupe import Dedupe
@@ -30,6 +31,6 @@ def __getattr__(name: str) -> Any:
 
 
 __all__ = [
-    "STAGES", "Cluster", "Competitors", "Dedupe", "Extract", "Fetch", "QueryGen", "Search",
-    "Shortlist", "Triage", "Verify",
+    "STAGES", "Buyers", "Cluster", "Competitors", "Dedupe", "Extract", "Fetch", "QueryGen",
+    "Search", "Shortlist", "Triage", "Verify",
 ]  # fmt: skip

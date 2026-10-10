@@ -364,6 +364,13 @@ def _stage_line(row: StageRun) -> str:
             + _counts_text(m["cells"], ("yes", "partial", "no", "unknown"))
             + f"  ·  {m['demoted_cells']} demoted, {m['gaps']} gaps"
         ),
+        "buyers": lambda: (
+            f"{m['opportunities']} opportunities for {m['problems']} problems  ·  roles "
+            + _counts_text(m["roles"], ("fact", "inference", "hypothesis"))
+            + f"  ·  {m['budget_owners']} budget owners  ·  {m['channels']} channels "
+            f"({m['channels_cited']} cited)  ·  {sum(m['dropped'].values())} dropped, "
+            f"{m['invalid_citations']} bad citations, {m['llm_failures']} failed calls"
+        ),
     }.get(row.stage)
     took = (row.finished_at - row.started_at).total_seconds() if row.finished_at else 0
     head = f"{row.stage:<10} {row.status:<9} {took:>5.0f}s  ${row.cost_usd:<9}"
@@ -389,7 +396,7 @@ def run_pipeline_cmd(
     ),
 ) -> None:
     """Run the research pipeline: query_gen → search → triage → fetch → dedupe → extract →
-    cluster → shortlist → verify → competitors."""
+    cluster → shortlist → verify → competitors → buyers."""
     if agent is not None:
         if from_stage or until or resume:
             _fail("--agent cannot be combined with --from, --until or --resume")

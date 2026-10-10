@@ -94,6 +94,7 @@ def add_hypothesis(
     stage: str,
     excerpt_ids: Iterable[int] = (),
     claim_ids: Iterable[int] = (),
+    meta: dict[str, Any] | None = None,
 ) -> Claim:
     return _add(
         session,
@@ -104,6 +105,7 @@ def add_hypothesis(
             supports=sorted(set(excerpt_ids)),
             derived_from=sorted(set(claim_ids)),
             stage=stage,
+            meta=meta or {},
         ),
     )
 

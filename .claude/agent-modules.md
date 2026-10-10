@@ -915,7 +915,17 @@ the work and often who they report to); competitor `segment` facts; gap inferenc
   `accessibility` (JSON) and `market_breadth` (JSON).
 - Claims: `fact` where a verified excerpt states the point; `inference` where it is derived from
   facts; `hypothesis` otherwise. A hypothesis is allowed but always labelled.
-- Optional market-breadth documents and claims (step 3).
+- Optional market-breadth documents and claims (step 3). **Deferred** (2026-10-10): the stage
+  stores the model's `breadth_hint` with `status: "not_searched"`; nothing is searched yet.
+
+Stored JSON shapes (claim ids are database ids):
+```text
+buyer_roles    = {user|buyer|decision_maker|economic_beneficiary:
+                    {role, claim_ids, hypothesis, hypothesis_claim_id},
+                  budget_owner: null | {…same…}, gap_claim_ids: [...]}
+accessibility  = {channels: [{kind, name, claim_ids, cited}]}   # cited = claim_ids non-empty
+market_breadth = {hint: str | null, status: "not_searched"}
+```
 
 **Model.** `analysis` tier, prompt `prompts/buyers.md`, one call per problem.
 
@@ -960,41 +970,55 @@ class BuyerAnalysis(BaseModel):
 - Do not invent statistics; fill `breadth_hint` instead.
 
 **Algorithm, per shortlisted cluster:**
-1. Build the claim table: the cluster's facts (only non-failed entailment), gap inferences, and
-   competitor segment facts. Add the plan's buyer hypotheses as `hypothesis` claims
-   (`stage="plan"`) so they can be cited and labelled as hypotheses.
+1. Build the claim table: the cluster's inference, its counted signal facts (extract + verify,
+   minus `verification.excluded_signal_ids`, only non-failed entailment; job ads first, then
+   first-hand, capped at `max_claims_per_problem`), its gap inferences, and its competitors'
+   segment facts. Add the plan's buyer hypotheses as `hypothesis` claims (`stage="buyers"`,
+   `meta.origin="plan"`, so `reset` removes them and re-runs don't duplicate them) so they can be
+   cited and labelled as hypotheses. The model sees local numbers 1..n, mapped back in code.
 2. Call the model → `BuyerAnalysis`.
 3. **Market breadth** (optional, deterministic, not a loop): for each `breadth_hint`, run up to
    `breadth_queries` fixed-template searches against the pack's statistics sources (TÜİK, TOBB,
    associations). Fetch the top hits, and extract numeric facts with verbatim quotes using a
    `fast` call with prompt `prompts/breadth_facts.md`. Store them as fact claims; if nothing is
    found, store `{"status": "unknown"}`.
-4. **Validate:** every cited id exists, belongs to the run and is not failed. A role with no
-   `claim_ids` must have a `hypothesis`. Drop opportunities whose segment duplicates another
-   (Turkish-aware near-dup). Cap at `max_opportunities_per_problem`.
+4. **Validate:** every cited number is in the table (others are dropped and counted). A role
+   with no valid `claim_ids` must have a `hypothesis`, or its opportunity is dropped; a null
+   `budget_owner` is kept. `gap_claim_ids` must be this problem's gap inferences. Channels without
+   a citation are kept as `cited: false`. Drop opportunities whose segment duplicates another
+   (`queries.Deduper`, `segment_dup_ratio`). Cap at `max_opportunities_per_problem`. A failed call
+   leaves that problem without opportunities (counted); `BudgetExceeded` stops the stage.
 5. Write the `Opportunity` rows. Store `buyer_roles` with the claim ids, and create a `hypothesis`
-   claim for each role hypothesis so the report can cite it.
+   claim for each role hypothesis (`meta.opportunity_id`, `meta.role`, derived from the role's
+   citations) so the report can cite it.
 
 **Config:**
 ```yaml
 buyers:
   max_opportunities_per_problem: 3
-  breadth_queries: 3
-  breadth_fetches: 4
+  max_claims_per_problem: 60    # signal facts in one problem's claim table
+  segment_dup_ratio: 85         # queries.Deduper ratio for near-duplicate segments
+  concurrency: 4
   max_output_tokens: 6000
+  # breadth_queries / breadth_fetches: added when breadth search is built
 ```
 
-**Metrics:** opportunities per problem; share of roles backed by facts vs hypotheses; budget owner
-identified (count); channels per opportunity; breadth found / unknown.
+**Metrics:** opportunities per problem; roles backed by facts vs inferences vs hypotheses; budget
+owners identified (count); channels per opportunity (and cited); dropped opportunities by reason;
+invalid citations; failed calls; a `per_problem` list with each problem's reason. (Breadth found /
+unknown once breadth is built.)
 
 **Tests** (`tests/test_buyer_research.py`):
 - A role that cites a non-existent claim is rejected.
 - A role with neither citation nor hypothesis is rejected.
 - A null budget owner is preserved for Gate 2.
 - Duplicate segments collapse.
+- Also: failed-entailment, unshortlisted and verify-excluded facts stay out of the table; plan
+  hypotheses are citable and labelled; a re-run is idempotent; `check_buyer_roles` flags a bad
+  role; one failed call doesn't fail the stage.
 
 **Done when.** Each opportunity's buyer roles can be traced to cited claims or are explicitly
-labelled hypotheses (part of the M5 exit).
+labelled hypotheses (part of the M5 exit). Checked by `evidence/opportunities.check_buyer_roles`.
 
 ---
 
@@ -1370,7 +1394,7 @@ seeded uncited or hallucinated bullets in tests.
 | `documents` | ✅ M4: `origin` String(16) default `collect` (`collect` / `verify` / `competitor` / `buyers`), `problem_id` nullable FK (SET NULL) | loop agents (M4) |
 | `excerpts` | ✅ M4: `stage` String(32) default `extract` (each stage deletes only its own; cluster reads only `extract`) | loop agents (M4) |
 | `gap_matrices` | ✅ M4: `run_id` FK (run-scoped deletes and the exit check) | competitor_research (M4) |
-| `opportunities` | `status` String(16), `knockouts` JSONB, `accessibility` JSONB, `market_breadth` JSONB | buyer_research, monetization (M5) |
+| `opportunities` | ✅ M5 (`f1a7c3d9e2b4`): `status` String(16), `knockouts` JSONB, `accessibility` JSONB, `market_breadth` JSONB | buyer_research, monetization (M5) |
 | `score_cards` | `experiment` JSONB | opportunity_scorer (M5) |
 
 Collection stages (`extract`, `dedupe`) read only `documents.origin = 'collect'`, and `search`

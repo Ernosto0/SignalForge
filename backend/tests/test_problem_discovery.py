@@ -486,7 +486,8 @@ def test_problem_discovery_writes_signals_claims_and_clusters(db, monkeypatch) -
     assert cluster.signal_ids == [s.id for s in signals]
     assert (inference.kind, inference.stage, inference.statement) == ("inference", "cluster", "d")
     assert inference.derived_from == sorted(f.id for f in facts)
-    assert snap["claims"] == len(facts) + 1
+    # Plus the plan's buyer hypotheses, which buyers stores as citable hypothesis claims.
+    assert snap["claims"] == len(facts) + 1 + len(PLAN.buyer_hypotheses)
     # The author is only stored as a salted hash.
     hashed = [e.author_hash for e in excerpts.values() if e.author_hash]
     assert len(hashed) == 1 and AUTHOR not in hashed[0]

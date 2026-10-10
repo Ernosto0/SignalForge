@@ -228,6 +228,14 @@ class CompetitorsDefaults(LoopDefaults):
     matrix_output_tokens: int
 
 
+class BuyersDefaults(BaseModel):
+    max_opportunities_per_problem: int
+    max_claims_per_problem: int  # signal facts in the prompt's claim table
+    segment_dup_ratio: float  # rapidfuzz token_sort_ratio at which two segments are duplicates
+    concurrency: int
+    max_output_tokens: int
+
+
 class Defaults(BaseModel):
     """Typed view of config/defaults.yaml."""
 
@@ -248,6 +256,7 @@ class Defaults(BaseModel):
     verify: VerifyDefaults
     entailment: EntailmentDefaults
     competitors: CompetitorsDefaults
+    buyers: BuyersDefaults
 
 
 @lru_cache

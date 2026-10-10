@@ -482,6 +482,13 @@ loop, entailment, `signalforge gaps` as the exit check; migration `e6f1a3b5c7d9`
 second round in `ProblemCluster.verification` and never edits Gate 1's columns; loop documents carry
 `origin`, and excerpts carry `stage`, so collection re-runs ignore them. Open: a live TR logistics
 run once the M3 founder check has passed, and adding B2B software review sites to `sources.yaml`.
+*Live run 2026-10-10 (run 22, TR logistics, gpt-6-luna):* verify kept 3 of 3 shortlisted problems
+(29 searches, 7 fetches, 5 new signals, 1 counter; entailment supported 8, partial 10, failed 0;
+$0.023). Competitors confirmed 11 products (3–5 per problem; 53 searches, 22 on own sites; 167
+verified facts, 18 prices, 9 site languages; $0.074). 107 matrix cells: yes 23, partial 29, no 3,
+unknown 52; 0 demoted; 11 gaps. `signalforge gaps 22` passes: **M4 exit holds**. Weak spot:
+`e_document_integration` is unknown in every cell, and one problem lists a support line and an
+e-Arşiv product as competitors. Still open: B2B review sites in `sources.yaml`.
 *Agents:* [evidence_validator](agent-modules.md#4-agentsevidence_validatorpy--evidence-validator) part 2
 (`verify`, entailment) · [competitor_research](agent-modules.md#5-agentscompetitor_researchpy--competitor-research)
 (`competitors`). Both use the shared loop in `agents/loop.py`.
@@ -493,6 +500,16 @@ categories, founder fit, experiment selection.
 [monetization](agent-modules.md#7-agentsmonetizationpy--monetization) (`monetization`, Gate 2) ·
 [opportunity_scorer](agent-modules.md#8-agentsopportunity_scorerpy--opportunity-scorer) (`score`).
 The `commercial` split is settled (§14, 2026-10-10): two stages, `buyers` + `monetization`.
+*Progress 2026-10-10:* `buyers` built and tested (migration `f1a7c3d9e2b4` adds `opportunities.status`,
+`knockouts`, `accessibility`, `market_breadth`; exit check `evidence/opportunities.check_buyer_roles`).
+Market-breadth search is deferred (`market_breadth.status = "not_searched"`). Live on run 22: 3
+opportunities (1 per problem; none dropped, 0 bad citations), every one gap-targeted; roles 6
+fact-backed, 7 hypotheses; 1 budget owner of 3 (and it only cites a plan hypothesis); 0 channels;
+$0.0024. `check_buyer_roles` is empty. Read by hand: segments are specific (e.g. "SMB road-freight
+firms operating 5–50 trucks") and angles name their gaps, and Turkish role names are plausible. But
+the model sometimes cites a fact that doesn't state the role (a complaint cited for the buyer), and
+uses a company ("nakliye firması") or the user as the economic beneficiary. Before `monetization`:
+consider entailment on role citations, and a prompt v2 for channels and beneficiaries.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.

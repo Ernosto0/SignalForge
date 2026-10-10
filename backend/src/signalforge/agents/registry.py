@@ -5,6 +5,7 @@ order is derived from this tuple, so there is one source of truth for ordering.
 """
 
 from signalforge.agents.base import Agent
+from signalforge.agents.buyer_research import BUYER_RESEARCH
 from signalforge.agents.competitor_research import COMPETITOR_RESEARCH
 from signalforge.agents.evidence_validator import EVIDENCE_VALIDATOR
 from signalforge.agents.problem_discovery import PROBLEM_DISCOVERY
@@ -15,6 +16,7 @@ AGENTS: tuple[Agent, ...] = (
     PROBLEM_DISCOVERY,
     EVIDENCE_VALIDATOR,
     COMPETITOR_RESEARCH,
+    BUYER_RESEARCH,
 )
 
 STAGES = tuple(stage for agent in AGENTS for stage in agent.stages)

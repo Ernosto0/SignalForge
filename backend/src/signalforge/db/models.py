@@ -315,9 +315,19 @@ class Opportunity(Base):
     )
     segment: Mapped[str] = mapped_column(Text)
     solution_angle: Mapped[str] = mapped_column(Text)
+    # buyers stage: {user|buyer|decision_maker|economic_beneficiary: {role, claim_ids, hypothesis,
+    # hypothesis_claim_id}, budget_owner: null | {…}, gap_claim_ids: [...]}
     buyer_roles: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     economic_model: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
     wtp_signals: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    status: Mapped[str | None] = mapped_column(String(16))  # monetization (Gate 2)
+    knockouts: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, default=list, server_default="[]"
+    )
+    # {channels: [{kind, name, claim_ids, cited}]}
+    accessibility: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
+    # {hint, status: not_searched}; breadth search is deferred
+    market_breadth: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, server_default="{}")
 
 
 class ScoreCard(Base):

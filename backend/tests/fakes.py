@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from signalforge.agents.loop import LoopAction
 from signalforge.config import BACKEND_DIR, CacheMode, Settings, get_defaults
 from signalforge.domain.collection import TriageBatch, TriageJudgment
+from signalforge.domain.commercial import BuyerAnalysis
 from signalforge.domain.competitors import CompetitorSeeds
 from signalforge.domain.evidence import ClusterMerge, MergeBatch
 from signalforge.domain.plan import load_plan
@@ -107,7 +108,8 @@ def support_all(prompt_input: str) -> EntailmentBatch:
 
 class FakeLLM:
     """LLM client answering by output schema. Defaults: triage is judged by :class:`FakeJudge`,
-    research loops finish at once, entailment supports every claim, no competitor seeds."""
+    research loops finish at once, entailment supports every claim, no competitor seeds, no
+    opportunities."""
 
     def __init__(self, handlers: dict[type[BaseModel], Handler] | None = None) -> None:
         self.handlers: dict[type[BaseModel], Handler] = {
@@ -116,6 +118,7 @@ class FakeLLM:
             EntailmentBatch: support_all,
             CompetitorSeeds: lambda _: CompetitorSeeds(from_signals=[], suggested=[]),
             MergeBatch: merge_nothing,
+            BuyerAnalysis: lambda _: BuyerAnalysis(opportunities=[]),
             **(handlers or {}),
         }
         self.calls: list[type[BaseModel]] = []

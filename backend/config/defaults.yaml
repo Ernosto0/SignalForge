@@ -238,3 +238,17 @@ competitors:
   entail_cells: true
   seed_output_tokens: 2000
   matrix_output_tokens: 8000
+
+# --- M5 commercial: buyers → monetization → score (plan §4, §6) -----------------------------
+
+# Who buys: 1–3 opportunities per shortlisted problem, each with buyer roles citing the claim
+# table (signal facts, the problem's inference, gap inferences, competitor segment facts, the
+# plan's buyer hypotheses) or labelled as hypotheses. Market breadth search is not built yet.
+buyers:
+  max_opportunities_per_problem: 3
+  # Signal facts in one problem's claim table (job ads first, then first-hand signals).
+  max_claims_per_problem: 60
+  # Segments of one problem this similar (Turkish-aware token_sort_ratio) are one segment.
+  segment_dup_ratio: 85
+  concurrency: 4
+  max_output_tokens: 6000
