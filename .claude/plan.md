@@ -549,6 +549,14 @@ Mikro Jump). Both experiments: interviews testing the unsourced `hours_saved_per
 between runs on a new model sample (feasibility is one call, not k judges); frequency is 2 where
 no claim states a cadence; every buyer role and channel is still a hypothesis, which now caps
 confidence at medium as it should.
+*Open for M7:* (a) founder fit varies between samples: it rests on one feasibility call, and
+opp 6 flipped stretch → fit on a resample; candidate fix: k feasibility calls, taking the worst
+or the majority answer. (b) The WTP code floor misses competitors whose prices have period
+`unknown` (Logo WMS), so it under-counts paid competitors. (c) `market_breadth` is fixed at
+level 2 until the breadth search is built, which costs 7.5 of the 25 points above the `strong`
+threshold (75); with `customer_accessibility` usually ≤ 2 as well, the ceiling is 85 and
+`strong` needs level 4–5 on nearly every other factor. (d) `hours_saved_per_month` is the
+model's estimate on every opportunity, and it is the experiment target on every run 22 card.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.
