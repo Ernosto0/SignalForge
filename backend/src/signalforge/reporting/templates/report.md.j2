@@ -1,0 +1,123 @@
+{% macro bullets(items) %}
+{% for b in items %}
+- {{ "**[" ~ b.label ~ "]** " if b.label }}{{ b.text }}{% for c in b.refs %} [c{{ c.id }}](#claim-{{ c.id }}){{ " (partial)" if c.entailment == "partial" }}{% endfor %}
+
+{% endfor %}
+{% endmacro %}
+{% set req = r.request %}
+# Opportunity report — {{ req.country }} {{ req.industry }}
+
+Run #{{ r.run_id }} · {{ req.target_customer }} · {{ req.business_model }} · pack {{ r.method.pack }}{{ " (run created with " ~ r.method.run_pack ~ ")" if r.method.run_pack != r.method.pack }} · generated {{ r.generated_at }}
+
+> Every factual bullet cites the claims it rests on (links to **Sources** at the end). Bullets
+> marked **Hypothesis** or **Assumption** are not established facts; **Recommendation** bullets
+> are proposals. Quotes are shown in the original language with an English translation. Only
+> short excerpts are exported, never full page text.
+
+## Summary
+
+{% if r.summary_ranking %}
+| Opportunity | Category | Attractiveness | Confidence | Founder fit |
+|---|---|---:|---|---|
+{% for x in r.summary_ranking %}
+| {{ x.title }} | {{ x.category }} | {{ x.attractiveness }} | {{ x.confidence }} | {{ x.founder_fit }} |
+{% endfor %}
+
+{% endif %}
+{% if r.summary %}
+{{ bullets(r.summary) }}
+{% else %}
+No opportunity qualified for a full report.
+
+{% endif %}
+{% for o in r.opportunities %}
+## {{ loop.index }}. {{ o.title }}
+
+*{{ o.category }}* · attractiveness {{ o.attractiveness }} · confidence {{ o.confidence }} · founder fit {{ o.founder_fit }}
+
+{{ o.one_liner }}
+
+{% for s in o.sections %}
+### {{ s.title }}
+
+{% if s.bullets %}
+{{ bullets(s.bullets) }}
+{% else %}
+No validated content for this section.
+
+{% endif %}
+{% endfor %}
+{% endfor %}
+## Other scored opportunities
+
+{% if r.other_opportunities %}
+| Opportunity | Category | Attractiveness | Confidence | Founder fit | Top factor |
+|---|---|---:|---|---|---|
+{% for p in r.other_opportunities %}
+| {{ p.segment }} | {{ p.category }} | {{ p.attractiveness }} | {{ p.confidence }} | {{ p.founder_fit }} | {{ p.top_factor }} |
+{% endfor %}
+{% else %}
+None.
+{% endif %}
+
+## Don't build
+
+{% if r.dont_build %}
+{% for d in r.dont_build %}
+- **{{ d.segment }}** ({{ d.category }})
+{% for x in d.reasons %}
+  - {{ x.text }}{{ " — " ~ x.detail if x.detail }} (`{{ x.rule }}`)
+{% endfor %}
+{% endfor %}
+{% else %}
+None.
+{% endif %}
+
+## Insufficient evidence
+
+{% if r.insufficient_evidence %}
+{% for i in r.insufficient_evidence %}
+### {{ i.name }}
+
+{{ i.why }}{{ ": " ~ i.failed_rules|join("; ") if i.failed_rules }} · {{ i.signals }} signals · {{ i.independent_sources }} independent sources · strength {{ i.strength if i.strength is not none else "–" }}
+
+{% for q in i.quotes %}
+> „{{ q.quote|replace("\n", " ") }}"
+> — *{{ (q.translation or "")|replace("\n", " ") }}*
+> {{ "[" ~ q.domain ~ "](" ~ q.url ~ ")" if q.url else "" }} · {{ q.date or "undated" }}
+
+{% endfor %}
+{% endfor %}
+{% else %}
+None.
+{% endif %}
+
+## Method
+
+- Pack {{ r.method.pack }} (run created with {{ r.method.run_pack }}) · {% for k, v in r.method.counts.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}
+
+- Cost by stage (USD): {% for k, v in r.method.stage_costs.items() %}{{ k }} {{ "%.4f"|format(v) }}{{ ", " if not loop.last }}{% endfor %}
+
+- Models: {% for k, v in r.method.models.items() %}{{ k }}: {{ v|join("/") }}{{ "; " if not loop.last }}{% endfor %}
+
+- Prompts: {{ r.method.prompts|join(", ") }}
+- Report: {{ r.method.sections_generated }} sections written, {{ r.method.regenerations }} regenerations, {{ r.method.dropped_bullets|length }} bullets dropped
+{% for n in r.method.notes %}
+- {{ n }}
+{% endfor %}
+{% for d in r.method.dropped_bullets %}
+- Dropped ({{ d.section }}): {{ d.text }} — {{ d.errors|join("; ") }}
+{% endfor %}
+
+## Sources
+
+{% for c in r.claims %}
+<a id="claim-{{ c.id }}"></a>**c{{ c.id }}** · {{ c.kind }}{{ " · " ~ c.entailment if c.entailment }} — {{ c.statement }}
+
+{% for e in c.excerpts %}
+> „{{ e.quote|replace("\n", " ") }}"
+> — *{{ (e.translation or "")|replace("\n", " ") }}*
+> {{ "[" ~ e.domain ~ "](" ~ e.url ~ ")" if e.url else "" }} · {{ e.date or "undated" }}
+
+{% endfor %}
+{% endfor %}

@@ -11,6 +11,7 @@ from signalforge.agents.evidence_validator import EVIDENCE_VALIDATOR
 from signalforge.agents.monetization import MONETIZATION
 from signalforge.agents.opportunity_scorer import OPPORTUNITY_SCORER
 from signalforge.agents.problem_discovery import PROBLEM_DISCOVERY
+from signalforge.agents.report_writer import REPORT_WRITER
 from signalforge.agents.source_discovery import SOURCE_DISCOVERY
 
 AGENTS: tuple[Agent, ...] = (
@@ -21,6 +22,7 @@ AGENTS: tuple[Agent, ...] = (
     BUYER_RESEARCH,
     MONETIZATION,
     OPPORTUNITY_SCORER,
+    REPORT_WRITER,
 )
 
 STAGES = tuple(stage for agent in AGENTS for stage in agent.stages)

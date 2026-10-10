@@ -562,6 +562,31 @@ model's estimate on every opportunity, and it is the experiment target on every 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.
 *Agents:* [report_writer](agent-modules.md#9-agentsreport_writerpy--report-writer) (`report`).
 *Exit:* 100% of factual bullets cited; validator catches seeded uncited/hallucinated bullets in tests.
+*Progress 2026-10-10:* `report` built and tested (agent-modules §9 "As built"; no migration;
+`report:` block in defaults.yaml; exit check `evidence/reports.check_report`). One synthesis call
+per section over that section's claim table, plus one summary call; a pure validator (TR/EN
+numbers with a 1% rounding tolerance, Turkish-aware proper nouns, kind and hedge rules) with
+per-section regeneration, then dropping; don't-build, insufficient-evidence, other-opportunity
+and method sections in code. Live on run 22 ($0.016, 88 s, 32 calls): 2 full reports (opps 6
+warehouse and 5 forwarders; only 2 qualify, below `min_full_reports` 3, noted in the report),
+22 sections, 9 regenerations, 85 bullets (74 factual, 100% cited), 0 dropped, 56 claims cited;
+entailment had nothing new to check (score had checked every table fact). Don't build: opp 4
+road freight (`gate2.value_below_minimum`); insufficient evidence: the 19 clusters that failed
+Gate 1. A re-run is identical from the cache ($0). `check_report(22)` is empty: **M6 exit
+holds**. *Fixes after review (same day):* the first summary had a bullet comparing the two
+opportunities' scores that passed only because the scores were in `summary_extra`; the scores are
+now out of the summary's extra sources and shown in a code-built ranking line
+(`summary_ranking`, checked by `check_report`), with `report_summary` prompt v2 ("don't compare
+scores or categories"). Insufficient-evidence clusters show at most 2 quotes
+(`INSUFFICIENT_QUOTES`). `method` shows both the run's stored pack (tr@0.1.1) and the loaded one
+(tr@0.1.2, used by monetization and the report), with a note when they differ; the header shows
+the loaded one. Re-run: $0.0022 (the summary only), 19 s, still 85 bullets, 0 dropped, 100%
+cited, `check_report(22)` empty. report.md is 70 KB (was 75): insufficient evidence (19 clusters,
+27 KB) and Sources (24 KB) are most of it.
+*Open for M7:* (a) partial facts are sometimes stated flatly (the validator can't judge tone; the
+md marks "(partial)" next to the citation); (b) the model's `validation_experiment` bullets mostly
+restate the code-built one; (c) Turkish-suffixed names (e.g. "Logodan") fail rule 3 and are
+dropped by design; (d) the run's stored `pack_version` can lag the pack used by later stages.
 
 **M7 — Multi-market evaluation.** Run on ≥5 TR markets (logistics, construction, accounting, export,
 e-commerce, …), label with the founder checklist, tune thresholds/weights/prompts against fixtures.

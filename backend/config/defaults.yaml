@@ -311,3 +311,18 @@ score:
   max_claims_per_opportunity: 60
   concurrency: 4
   max_output_tokens: 4000
+
+# Final report (plan §7.4; agent-modules.md §9): one LLM call per opportunity section, validated by
+# reporting/validator.py. A bullet citing a hypothesis or unsourced assumption must contain a hedge.
+report:
+  full_reports: 5
+  min_full_reports: 3          # fewer only if fewer opportunities are strong / interesting / competitive
+  max_regenerations: 2
+  hedges: [may, might, likely, hypothesis, unverified, "we assume", "not yet confirmed",
+           plausible, probably, estimated, assumed]
+  out_dir: reports
+  max_output_tokens: 8000
+  max_claims_per_section: 12
+  max_bullets_per_section: 6
+  excerpt_max_chars: 500
+  concurrency: 4

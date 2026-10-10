@@ -1,0 +1,154 @@
+{% macro bullets(items) %}
+<ul>
+{% for b in items %}
+  <li class="{{ b.kind }}">{% if b.label %}<span class="tag {{ b.kind }}">{{ b.label }}</span> {% endif %}{{ b.text }}{% for c in b.refs %} <a class="ref" href="#claim-{{ c.id }}">c{{ c.id }}</a>{{ " (partial)" if c.entailment == "partial" }}{% endfor %}</li>
+{% endfor %}
+</ul>
+{% endmacro %}
+{% set req = r.request %}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Opportunity report — {{ req.country }} {{ req.industry }}</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --fg: #1d1d1f; --muted: #6b6b70; --line: #e4e2dd; --card: #ffffff;
+    --accent: #2f5d8a; --quote: #f3f1ec; --warn: #9a5b00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #ececee; --muted: #9a9aa2; --line: #2e2e33; --card: #1e1e21;
+      --accent: #8db6e0; --quote: #26262a; --warn: #e0a957;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg);
+         font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  main { max-width: 920px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; }
+  h2 { font-size: 1.2rem; margin: 40px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 6px; }
+  h3 { font-size: 1.02rem; margin: 20px 0 6px; }
+  .meta, .muted { color: var(--muted); font-size: 0.9rem; }
+  .note { border-left: 3px solid var(--accent); padding: 8px 12px; margin: 16px 0;
+          background: var(--card); color: var(--muted); font-size: 0.9rem; }
+  .tag { font-size: 0.75rem; font-weight: 600; border-radius: 4px; padding: 0 6px; border: 1px solid var(--line); }
+  .tag.hypothesis, .tag.assumption { color: var(--warn); border-color: var(--warn); }
+  .tag.recommendation, .tag.inference { color: var(--accent); border-color: var(--accent); }
+  li.hypothesis, li.assumption { border-left: 3px solid var(--warn); padding-left: 8px; }
+  a.ref { font-size: 0.8rem; color: var(--accent); text-decoration: none; }
+  table { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
+  th, td { padding: 4px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+  blockquote { margin: 8px 0; padding: 10px 12px; background: var(--quote); border-radius: 6px; }
+  blockquote .tr { color: var(--muted); font-style: italic; margin-top: 4px; }
+  .claim { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px; margin: 10px 0; }
+  .claim:target { border-color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+<h1>Opportunity report — {{ req.country }} {{ req.industry }}</h1>
+<div class="meta">Run #{{ r.run_id }} · {{ req.target_customer }} · {{ req.business_model }} · pack {{ r.method.pack }}{{ " (run created with " ~ r.method.run_pack ~ ")" if r.method.run_pack != r.method.pack }} · generated {{ r.generated_at }}</div>
+<div class="note">Every factual bullet cites the claims it rests on (links to Sources at the end). Bullets
+marked Hypothesis or Assumption are not established facts; Recommendation bullets are proposals. Quotes are
+shown in the original language with an English translation. Only short excerpts are exported, never full page text.</div>
+
+<h2>Summary</h2>
+{% if r.summary_ranking %}
+<table>
+<tr><th>Opportunity</th><th>Category</th><th>Attractiveness</th><th>Confidence</th><th>Founder fit</th></tr>
+{% for x in r.summary_ranking %}
+<tr><td>{{ x.title }}</td><td>{{ x.category }}</td><td>{{ x.attractiveness }}</td><td>{{ x.confidence }}</td><td>{{ x.founder_fit }}</td></tr>
+{% endfor %}
+</table>
+{% endif %}
+{% if r.summary %}
+{{ bullets(r.summary) }}
+{% else %}
+<p>No opportunity qualified for a full report.</p>
+{% endif %}
+{% for o in r.opportunities %}
+<h2>{{ loop.index }}. {{ o.title }}</h2>
+<div class="meta">{{ o.category }} · attractiveness {{ o.attractiveness }} · confidence {{ o.confidence }} · founder fit {{ o.founder_fit }}</div>
+<p>{{ o.one_liner }}</p>
+{% for s in o.sections %}
+<h3>{{ s.title }}</h3>
+{% if s.bullets %}
+{{ bullets(s.bullets) }}
+{% else %}
+<p class="muted">No validated content for this section.</p>
+{% endif %}
+{% endfor %}
+{% endfor %}
+
+<h2>Other scored opportunities</h2>
+{% if r.other_opportunities %}
+<table>
+<tr><th>Opportunity</th><th>Category</th><th>Attractiveness</th><th>Confidence</th><th>Founder fit</th><th>Top factor</th></tr>
+{% for p in r.other_opportunities %}
+<tr><td>{{ p.segment }}</td><td>{{ p.category }}</td><td>{{ p.attractiveness }}</td><td>{{ p.confidence }}</td><td>{{ p.founder_fit }}</td><td>{{ p.top_factor }}</td></tr>
+{% endfor %}
+</table>
+{% else %}
+<p class="muted">None.</p>
+{% endif %}
+
+<h2>Don't build</h2>
+{% if r.dont_build %}
+<ul>
+{% for d in r.dont_build %}
+  <li><b>{{ d.segment }}</b> ({{ d.category }})
+    <ul>
+{% for x in d.reasons %}
+      <li>{{ x.text }}{{ " — " ~ x.detail if x.detail }} <code>{{ x.rule }}</code></li>
+{% endfor %}
+    </ul>
+  </li>
+{% endfor %}
+</ul>
+{% else %}
+<p class="muted">None.</p>
+{% endif %}
+
+<h2>Insufficient evidence</h2>
+{% if r.insufficient_evidence %}
+{% for i in r.insufficient_evidence %}
+<h3>{{ i.name }}</h3>
+<div class="meta">{{ i.why }}{{ ": " ~ i.failed_rules|join("; ") if i.failed_rules }} · {{ i.signals }} signals · {{ i.independent_sources }} independent sources · strength {{ i.strength if i.strength is not none else "–" }}</div>
+{% for q in i.quotes %}
+<blockquote><p>„{{ q.quote }}"</p><p class="tr">{{ q.translation or "" }}</p>
+<div class="meta">{% if q.url %}<a href="{{ q.url }}">{{ q.domain }}</a>{% endif %} · {{ q.date or "undated" }}</div></blockquote>
+{% endfor %}
+{% endfor %}
+{% else %}
+<p class="muted">None.</p>
+{% endif %}
+
+<h2>Method</h2>
+<ul>
+  <li>Pack {{ r.method.pack }} (run created with {{ r.method.run_pack }}) · {% for k, v in r.method.counts.items() %}{{ k }} {{ v }}{{ ", " if not loop.last }}{% endfor %}</li>
+  <li>Cost by stage (USD): {% for k, v in r.method.stage_costs.items() %}{{ k }} {{ "%.4f"|format(v) }}{{ ", " if not loop.last }}{% endfor %}</li>
+  <li>Models: {% for k, v in r.method.models.items() %}{{ k }}: {{ v|join("/") }}{{ "; " if not loop.last }}{% endfor %}</li>
+  <li>Prompts: {{ r.method.prompts|join(", ") }}</li>
+  <li>Report: {{ r.method.sections_generated }} sections written, {{ r.method.regenerations }} regenerations, {{ r.method.dropped_bullets|length }} bullets dropped</li>
+{% for n in r.method.notes %}
+  <li>{{ n }}</li>
+{% endfor %}
+{% for d in r.method.dropped_bullets %}
+  <li>Dropped ({{ d.section }}): {{ d.text }} — {{ d.errors|join("; ") }}</li>
+{% endfor %}
+</ul>
+
+<h2>Sources</h2>
+{% for c in r.claims %}
+<div class="claim" id="claim-{{ c.id }}"><b>c{{ c.id }}</b> · {{ c.kind }}{{ " · " ~ c.entailment if c.entailment }} — {{ c.statement }}
+{% for e in c.excerpts %}
+<blockquote><p>„{{ e.quote }}"</p><p class="tr">{{ e.translation or "" }}</p>
+<div class="meta">{% if e.url %}<a href="{{ e.url }}">{{ e.domain }}</a>{% endif %} · {{ e.date or "undated" }}</div></blockquote>
+{% endfor %}
+</div>
+{% endfor %}
+</main>
+</body>
+</html>

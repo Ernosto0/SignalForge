@@ -392,6 +392,13 @@ def _stage_line(row: StageRun) -> str:
             f"  ·  {sum(m['capped'].values())} capped, {m['judge_calls']} judge calls, "
             f"{sum(m['llm_failures'].values())} failed calls"
         ),
+        "report": lambda: (
+            f"{m['full_reports']} full reports, {m['sections_generated']} sections "
+            f"({m['regenerations']} regenerations, {m['failed_sections']} failed)  ·  "
+            f"{m['bullets']} bullets, {m['bullets_dropped']} dropped, factual cited "
+            f"{m['factual_cited_pct']:.0%}  ·  {m['claims_cited']} claims cited  ·  entailment "
+            + _counts_text(m["entailment"], ("checked", "supported", "partial", "not_supported"))
+        ),
     }.get(row.stage)
     took = (row.finished_at - row.started_at).total_seconds() if row.finished_at else 0
     head = f"{row.stage:<10} {row.status:<9} {took:>5.0f}s  ${row.cost_usd:<9}"

@@ -121,7 +121,7 @@ Milestones refer to [plan.md §13](plan.md#13-milestones-each-with-an-exit-crite
 | 6 | `buyer_research.py` | `buyers` | analysis | no | M5 | ✅ built, live on run 22 |
 | 7 | `monetization.py` | `monetization` (Gate 2) | analysis + code | no | M5 | ✅ built, live on run 22 |
 | 8 | `opportunity_scorer.py` | `score` | analysis + code | no | M5 | ✅ built, live on run 22 |
-| 9 | `report_writer.py` | `report` | synthesis | no | M6 | to build |
+| 9 | `report_writer.py` | `report` | synthesis | no | M6 | ✅ built, live on run 22 |
 
 Shared code these agents use (new files, under plan §12's layout):
 
@@ -133,7 +133,7 @@ Shared code these agents use (new files, under plan §12's layout):
 | `evidence/extraction.py` | extract, verify, competitors, buyers | `extract_document(ctx, doc, text, context) -> list[ExtractedSignal]` plus excerpt/signal/claim writing |
 | `evidence/independence.py` | shortlist, verify | source components from dedupe groups and author hashes |
 | `evidence/strength.py` | shortlist, verify, score | deterministic evidence strength (plan §8.1) |
-| `evidence/entailment.py` | verify, competitors, report | cheap-model entailment check of fact claims: `entail_pending`, `failed`, `clear_entailment` |
+| `evidence/entailment.py` | verify, competitors, score, report | cheap-model entailment check of fact claims: `entail_pending`, `failed`, `clear_entailment` |
 | `evidence/claims.py` | all analysis agents | helpers: `add_fact`, `add_inference`, `add_hypothesis`, `add_assumption`, `claim_table(run_id, ids)` |
 | `evidence/clusters.py` | competitors and later | read a cluster after verify: `cluster_signal_ids`, `current_strength`, `current_sources`; `pick_quotes` |
 | `evidence/gaps.py` | competitors, `signalforge gaps` | `check_gap_matrices`: the M4 exit rule over stored matrices |
@@ -1461,7 +1461,60 @@ report:
 - No full document text appears in any output file.
 
 **Done when.** This is the M6 exit: 100% of factual bullets are cited, and the validator catches
-seeded uncited or hallucinated bullets in tests.
+seeded uncited or hallucinated bullets in tests. Checked by `evidence/reports.check_report(ctx)`.
+
+**As built (2026-10-10).** Files: `pipeline/stages/report.py`, `reporting/{schema,sections,tables,
+validator,deterministic,render}.py`, `reporting/templates/report.{md,html}.j2`,
+`evidence/reports.py`, `prompts/report.md` and `prompts/report_summary.md`. No migration. Changes
+from the spec above:
+- Files go to `<out_dir>/run-<id>/` (next to the landscape report), not `reports/<run_id>/`.
+  `reset` clears the stage's entailment verdicts and deletes that directory.
+- `Section` also stores `table` (the claim ids its writer could cite) and `extra` (allowed sources
+  besides the cited claims), so the validator is pure over a stored `report.json`. The summary
+  has `summary_table` / `summary_extra` (the segments only) and is validated as section
+  `summary` (no recommendations). Scores are not the model's to restate: a code-built ranking line
+  (`summary_ranking`: title, category, attractiveness, confidence, founder fit from the cards)
+  heads the summary, and `report_summary` v2 says not to compare scores or categories. `Report.claims` holds every table claim, so uncited recommendations can be
+  re-checked; the rendered Sources list only the cited ones.
+- Section tables (`tables.section_table`) come from the score claim pool (`score.load`) plus the
+  buyer channels' claims, capped at `max_claims_per_section`: `problem` = cluster inference + top
+  signal facts; `evidence` = inference + signal facts; `who_has_it` = inference, signal facts with
+  an actor, `user`-role claims; `current_solutions` = competitor gap-evidence, segment and price
+  facts; `gaps` = gap inferences + their competitor facts; `buyers` = role claims + channel claims
+  (extra: role names); `economics` = assumptions + prices (extra: the stored economic model's
+  numbers); `risks` = claims of factors at level ≤ 2 or capped, hypotheses, unsourced
+  assumptions, barrier facts, prices if WTP ≤ 2 (extra: card levels, confidence and founder-fit
+  inputs); `proposed_product` / `mvp` = inference, gaps, top signals, user role (+ barriers;
+  extra: solution angle, price ceiling, founder constraints); `validation_experiment` = the
+  experiment claim + the claims of its factor (extra: the stored experiment). Every section's
+  extra has the segment. Assumption claims show `name = range unit` only: their rationale cites
+  another prompt's local claim numbers.
+- Title and one-liner are the opportunity's segment and solution angle (code). The first
+  `validation_experiment` bullet is built in code from `card.experiment` (a recommendation citing
+  the experiment claim); the model adds at most 2 bullets after it.
+- Validator details: numbers match in TR/EN formats (`1.234,56` / `1,234.56`; a lone 3-digit
+  group reads both ways), currency symbols and range dashes are separators, `%` also matches a
+  fraction ×100; a rounded bullet number matches only within 1% of the source (`$153` for
+  152.93; `1` never matches 0.6). Proper nouns: capitalised words not at a sentence start, not in
+  a small stoplist, split at apostrophes, matched `tr_casefold`ed. A `fact` bullet must cite a
+  fact, an `inference` a fact or inference, an `assumption` an assumption; any non-recommendation
+  bullet citing a hypothesis or unsourced assumption needs a hedge. Uncited recommendations are
+  checked against the whole section table + extras. Not checked: number words, unnamed entities.
+- Regeneration sends `previous`, `errors` (in the model's own claim numbers) and `attempt` (so a
+  retry is not served from the cache); after the last attempt, the attempt with the fewest
+  invalid bullets is kept minus its invalid bullets. The assembled report is validated once more
+  and the stage fails rather than writing an invalid one.
+- `report_language` other than `en` fails the stage (hedges are English).
+- `check_report` re-validates the stored file, checks cited claims against the DB (exist, same
+  statement, not failed), excerpt length, the full-report selection, and that
+  `summary_ranking` / `other_opportunities` / `dont_build` / `insufficient_evidence` equal a
+  rebuild. `method` is only checked for consistency (non-negative counts, dropped bullets carry
+  errors) and its packs: `run_pack` is the run's stored version, `pack` the loaded one (later
+  stages use the current pack; a note says so when they differ).
+- Insufficient-evidence clusters show at most 2 verified quotes (`INSUFFICIENT_QUOTES`).
+- Config adds `max_claims_per_section` 12, `max_bullets_per_section` 6, `excerpt_max_chars` 500,
+  `concurrency` 4, and the hedges `plausible`, `probably`, `estimated`, `assumed` (stored
+  hypotheses say "plausible").
 
 ---
 
@@ -1478,6 +1531,7 @@ seeded uncited or hallucinated bullets in tests.
 | `gap_matrices` | ✅ M4: `run_id` FK (run-scoped deletes and the exit check) | competitor_research (M4) |
 | `opportunities` | ✅ M5 (`f1a7c3d9e2b4`): `status` String(16), `knockouts` JSONB, `accessibility` JSONB, `market_breadth` JSONB | buyer_research, monetization (M5) |
 | `score_cards` | ✅ M5 (`a2b8d4e6f1c3`): `experiment` JSONB; `attractiveness`, `confidence`, `founder_fit` nullable (knocked-out cards) | opportunity_scorer (M5) |
+| — | ✅ M6: none (the report is files; it reads existing rows) | report_writer (M6) |
 
 Collection stages (`extract`, `dedupe`) read only `documents.origin = 'collect'`, and `search`
 searches only collection intents, so loop rows never leak into a collection re-run.
@@ -1506,7 +1560,7 @@ is merged. Each agent's "Done when" line above repeats the exit it is responsibl
 | **M3** Signals & landscape | [problem_discovery](#3-agentsproblem_discoverypy--problem-discovery): `extract`, `cluster` · [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 1: `shortlist` (Gate 1) · landscape report | `evidence/quotes.py`, `extraction.py`, `claims.py`, `independence.py`, `strength.py`; `scoring/config.yaml` (strength block only) | `problem_clusters.status/gate`, `signals.meta` | problem_discovery (quote pass rate, labelled signals) + a founder reading the landscape report |
 | **M4** Verification & competitors | [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 2: `verify` + entailment · [competitor_research](#5-agentscompetitor_researchpy--competitor-research): `competitors` | `agents/loop.py`, `evidence/entailment.py`, `evidence/documents.py`, `evidence/clusters.py`, `evidence/gaps.py`, `queries.py`, `signalforge gaps` | `claims.entailment/meta`, `documents.origin/problem_id`, `excerpts.stage`, `problem_clusters.verification`, `gap_matrices.run_id` | competitor_research (gap-matrix cells) |
 | **M5** Commercial & scoring | [buyer_research](#6-agentsbuyer_researchpy--buyer-research): `buyers` · [monetization](#7-agentsmonetizationpy--monetization): `monetization` (Gate 2) · [opportunity_scorer](#8-agentsopportunity_scorerpy--opportunity-scorer): `score` | `scoring/economics.py`, `rubric.yaml`, `scorer.py`, `categories.py`, `experiments.py`/`.yaml` | `opportunities.*` columns, `score_cards.experiment`; pack `economics.yaml` (`usd_try`, wage references) | opportunity_scorer (explainable ScoreCards) |
-| **M6** Final report | [report_writer](#9-agentsreport_writerpy--report-writer): `report` | `reporting/schema.py`, `validator.py`, `render.py`, templates | none | report_writer (citation validator) |
+| **M6** Final report ✅ | [report_writer](#9-agentsreport_writerpy--report-writer): `report` | `reporting/schema.py`, `sections.py`, `tables.py`, `validator.py`, `deterministic.py`, `render.py` (`make_env`, shared with the landscape report), templates; `evidence/reports.py` | none | report_writer (citation validator, `check_report`) |
 | **M7** Multi-market evaluation | no new agents: tune each agent's config block and prompts on fixtures | `evals/` (fixtures, labelling, metrics reports), `signalforge ledger --by agent` | more market packs / industries as needed | all agents |
 | **M8** API & UI | no new agents: endpoints and UI show progress per agent (StageRuns grouped by `AGENTS`) | `api/routes`, worker, frontend | job table | — |
 
@@ -1539,4 +1593,5 @@ showing in `signalforge status`.
   `opportunity_scorer`. ✅ All built and live on run 22 (2026-10-10); the three M5 exit checks
   are empty.
 - **M6:** schema and validator first (test them against seeded bad bullets before any LLM call),
-  then section generation and rendering.
+  then section generation and rendering. ✅ Built and live on run 22 (2026-10-10);
+  `check_report(22)` is empty.

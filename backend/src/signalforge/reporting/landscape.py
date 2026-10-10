@@ -12,7 +12,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -30,8 +29,8 @@ from signalforge.evidence.clusters import pick_quotes
 from signalforge.evidence.independence import source_units
 from signalforge.pipeline.runner import latest_stage_runs
 from signalforge.pipeline.stages.shortlist import failed_rules
+from signalforge.reporting.render import make_env
 
-TEMPLATES = Path(__file__).parent / "templates"
 QUOTES_PER_PROBLEM = 5
 
 # Funnel rows: (label, stage, metric).
@@ -192,14 +191,7 @@ def build_landscape(db: sessionmaker[Session], run_id: int, defaults: Defaults) 
 def render_landscape(report: dict[str, Any], out_dir: Path) -> list[Path]:
     """Write landscape.json / .md / .html into ``out_dir``; returns the written paths."""
     out_dir.mkdir(parents=True, exist_ok=True)
-    env = Environment(
-        loader=FileSystemLoader(TEMPLATES),
-        autoescape=select_autoescape(enabled_extensions=("html.j2",), default=False),
-        undefined=StrictUndefined,
-        trim_blocks=True,
-        lstrip_blocks=True,
-    )
-    env.filters["pct"] = lambda v: "–" if v is None else f"{v:.0%}"
+    env = make_env()
     written = []
     path = out_dir / "landscape.json"
     path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

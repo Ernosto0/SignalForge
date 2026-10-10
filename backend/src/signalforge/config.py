@@ -321,6 +321,27 @@ class ScoreDefaults(BaseModel):
         return self
 
 
+class ReportDefaults(BaseModel):
+    full_reports: int  # opportunities that get a full report
+    min_full_reports: int  # fewer only if fewer qualify (never padded)
+    max_regenerations: int  # per section, after the first attempt
+    hedges: list[str]  # a bullet citing a hypothesis or unsourced assumption needs one
+    out_dir: Path  # reports are written to <out_dir>/run-<id>/
+    max_output_tokens: int
+    max_claims_per_section: int  # rows in one section's claim table
+    max_bullets_per_section: int
+    excerpt_max_chars: int  # plan §2 row 17: excerpts only, never page text
+    concurrency: int
+
+    @model_validator(mode="after")
+    def _check(self) -> "ReportDefaults":
+        if not self.hedges:
+            raise ValueError("report.hedges must not be empty")
+        if min(self.full_reports, self.max_claims_per_section, self.max_bullets_per_section) < 1:
+            raise ValueError("report limits must be at least 1")
+        return self
+
+
 class Defaults(BaseModel):
     """Typed view of config/defaults.yaml."""
 
@@ -344,6 +365,7 @@ class Defaults(BaseModel):
     buyers: BuyersDefaults
     monetization: MonetizationDefaults
     score: ScoreDefaults
+    report: ReportDefaults
 
 
 @lru_cache
