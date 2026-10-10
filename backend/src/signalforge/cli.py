@@ -381,6 +381,17 @@ def _stage_line(row: StageRun) -> str:
             f"  ·  {m['assumptions']} assumptions, sourced {m['sourced_share']:.0%}"
             f"  ·  {m['with_price_anchor']} with a price anchor"
         ),
+        "score": lambda: (
+            f"{m['cards']} cards for {m['opportunities']} opportunities  ·  "
+            + _counts_text(
+                m["by_category"],
+                ("strong", "interesting", "competitive", "weak", "false_positive"),
+            )
+            + f"  ·  confidence {_counts_text(m['confidence'], ('high', 'medium', 'low'))}"
+            f"  ·  fit {_counts_text(m['founder_fit'], ('fit', 'stretch', 'not_fit'))}"
+            f"  ·  {sum(m['capped'].values())} capped, {m['judge_calls']} judge calls, "
+            f"{sum(m['llm_failures'].values())} failed calls"
+        ),
     }.get(row.stage)
     took = (row.finished_at - row.started_at).total_seconds() if row.finished_at else 0
     head = f"{row.stage:<10} {row.status:<9} {took:>5.0f}s  ${row.cost_usd:<9}"

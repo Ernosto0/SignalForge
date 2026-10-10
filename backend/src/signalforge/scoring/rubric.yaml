@@ -1,0 +1,46 @@
+# Anchored rubric for the factors the model judges (plan §8.2; agent-modules.md §8). Each level
+# is described concretely so two judges reading the same claims land on the same level.
+# economic_impact and market_breadth are set by code (config/defaults.yaml `score`), not here.
+# Bump `version` when an anchor changes: it is part of the score stage's input hash.
+version: 1
+factors:
+  severity:
+    question: "How much does the problem hurt the firms that have it?"
+    levels:
+      1: "A mild annoyance mentioned in passing; nobody describes a cost or a workaround."
+      2: "A recurring irritation; people complain but describe no lost money, time or customers."
+      3: "Clear lost time or rework described first-hand, or a job ad that hires for the work."
+      4: "Lost money, customers, fines or overtime described first-hand by several sources."
+      5: "Business-critical; firms describe losing contracts, legal exposure or stopped operations."
+  frequency:
+    question: "How often does the painful work happen in one firm?"
+    levels:
+      1: "Rarely (a few times a year), e.g. an annual filing."
+      2: "Monthly, e.g. month-end reconciliation."
+      3: "Weekly, e.g. weekly reports or batch bookings."
+      4: "Daily, e.g. every shipment, every order or every shift."
+      5: "Many times a day and on the critical path, e.g. every vehicle event or stock movement."
+  competition_gap:
+    question: "How poorly do existing products cover what this opportunity offers?"
+    levels:
+      1: "Existing products already cover it well (gap claims say covered, or none apply)."
+      2: "Covered by several products; differences are price or polish only."
+      3: "A gap claim shows a needed capability no reviewed product fully covers."
+      4: "Several gap claims, each backed by competitor facts, show the core need is uncovered."
+      5: "No product addresses the need, shown by competitor facts across all reviewed products."
+  willingness_to_pay:
+    question: "What shows these firms already spend money on this problem?"
+    levels:
+      1: "No sign of spending: no prices, no paid tools, no staff hired for the work."
+      2: "Indirect only, e.g. people do the work in their regular jobs."
+      3: "Firms hire staff for the work (job ads), or one competitor shows observed prices."
+      4: "Several paid competitors with observed prices, plus staff hired for the work."
+      5: "Firms state they pay or would pay for a solution, with prices observed at the level needed."
+  customer_accessibility:
+    question: "Can a small team identify and reach the buyers?"
+    levels:
+      1: "Buyers are unidentifiable or reachable only through enterprise procurement."
+      2: "Plausible channels named (associations, events) but no claim shows them reaching buyers."
+      3: "A claim shows buyers gather in a reachable place (association, marketplace, forum)."
+      4: "Several claims show reachable channels, and the buyer role is identified by a fact."
+      5: "Buyers are listed in public directories and actively ask for solutions in open forums."

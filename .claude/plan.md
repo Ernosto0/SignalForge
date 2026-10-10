@@ -527,6 +527,28 @@ $9–94 → passed; road freight $27–83, ceiling $3–25 → knocked out (`val
 Sourced share 50% (the wages); both exit checks empty. Weak spots: hours saved are the model's
 guesses; the competitor price anchor's `min` picks up per-vehicle/add-on prices (median is
 saner). Next: `opportunity_scorer`.
+*Progress 2026-10-10:* `score` built and tested (migration `a2b8d4e6f1c3`: `score_cards.experiment`,
+score fields nullable for knocked-out cards; exit check `evidence/opportunities.check_score_cards`;
+`score:` block in defaults.yaml, anchors in `scoring/rubric.yaml`, catalogue in
+`scoring/experiments.yaml`). The model judges 5 factors; `economic_impact` (value midpoint) and
+`market_breadth` (not searched → 2) are code. The tables carry the competitor facts behind each
+gap (gap inferences alone always hit the uncited cap), and every table fact is entailment-checked
+first (`entail_cited`), so `false_positive` counts supported + partial facts. `strong` needs a
+budget owner backed by a fact or inference. First live run on run 22 ($0.0105; entailment
+checked 27 facts: 11 supported, 16 partial, 0 failed) gave opp 6 `high` confidence because
+`customer_accessibility` cited competitor segment facts and so counted as fact-backed, and gave
+opp 5 WTP 4 from two price snapshots of one competitor. *Fix (same day):* in the hypothesis share
+`customer_accessibility` is fact-backed only through a fact a buyer role cites (the uncited cap is
+unchanged), and competitor facts carry a `competitor` field in the prompt, which counts distinct
+competitors (`score` and `founder_fit` prompts v2). Re-run ($0.0098; 6 judge calls): opp 4 road
+freight `weak` (Gate 2 knock-out); opp 5 forwarders `interesting`, 51.25, medium (strength 6.81,
+hypothesis share 0.30), stretch (`mvp_feasible: stretch`), WTP 3 (one competitor); opp 6
+warehouse `interesting`, 55.0, medium (share 0.30, frequency spread 2), fit, WTP 4 (Logo and
+Mikro Jump). Both experiments: interviews testing the unsourced `hours_saved_per_month`.
+`check_score_cards` is empty: **M5 exit holds**. Weak spots: opp 6's fit flipped stretch → fit
+between runs on a new model sample (feasibility is one call, not k judges); frequency is 2 where
+no claim states a cadence; every buyer role and channel is still a hypothesis, which now caps
+confidence at medium as it should.
 *Exit:* each ScoreCard is fully explainable from its rule trace and cited claims.
 
 **M6 — Final report.** report.json → md/html; citation validator; "Don't build" section.

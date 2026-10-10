@@ -338,11 +338,14 @@ class ScoreCard(Base):
         ForeignKey("opportunities.id", ondelete="CASCADE"), unique=True
     )
     factors: Mapped[dict[str, Any]] = mapped_column(JSONB)  # level, justification, claim_ids
-    attractiveness: Mapped[float] = mapped_column(Float)
-    confidence: Mapped[str] = mapped_column(String(8))  # low | medium | high
-    founder_fit: Mapped[str] = mapped_column(String(8))  # fit | stretch | not_fit
+    # The next three are null on a knocked-out opportunity's card (not assessed).
+    attractiveness: Mapped[float | None] = mapped_column(Float)
+    confidence: Mapped[str | None] = mapped_column(String(8))  # low | medium | high
+    founder_fit: Mapped[str | None] = mapped_column(String(8))  # fit | stretch | not_fit
     category: Mapped[str] = mapped_column(String(32))
     rule_trace: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, default=list)
+    # {claim_id, factor, importance, uncertainty, score, name, cost_usd, duration_days, pass_fail}
+    experiment: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
 
 
 # --- ledger, labels, cache ------------------------------------------------------------------

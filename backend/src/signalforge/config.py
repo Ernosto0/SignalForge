@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, SecretStr
+from pydantic import BaseModel, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -251,6 +251,76 @@ class MonetizationDefaults(BaseModel):
     max_output_tokens: int
 
 
+class ConfidenceBand(BaseModel):
+    min_strength: float
+    max_hypothesis_share: float
+    max_spread: int
+
+
+class ScoreConfidence(BaseModel):
+    high: ConfidenceBand  # high needs all three
+    low: ConfidenceBand  # low if any one fails
+
+
+class StrongRule(BaseModel):
+    min_attractiveness: float
+    min_strength: float
+    min_gap: int
+
+
+class CompetitiveRule(BaseModel):
+    max_gap: int
+    min_wtp: int
+
+
+class WeakRule(BaseModel):
+    max_severity: int
+
+
+class FalsePositiveRule(BaseModel):
+    min_supported_facts: int
+
+
+class ScoreCategories(BaseModel):
+    strong: StrongRule
+    competitive: CompetitiveRule
+    weak: WeakRule
+    false_positive: FalsePositiveRule
+
+
+class WtpFloor(BaseModel):
+    min_competitors: int  # distinct competitors with a price convertible to USD/month
+    level: int
+
+
+class ScoreDefaults(BaseModel):
+    weights: dict[str, int]  # factor -> weight; sums to 100
+    uncited_cap: int
+    no_gap_cap: int
+    market_breadth_unsearched_level: int
+    wtp_floor: WtpFloor
+    economic_impact_levels_usd_month: list[float]  # 4 ascending boundaries for levels 1|2|3|4|5
+    k_judges: int
+    k_judge_top_n: int
+    confidence: ScoreConfidence
+    categories: ScoreCategories
+    uncertainty: dict[str, float]  # claim kind (see scoring/experiments.py) -> 0..1
+    stretch_sales_motions: list[str]
+    entail_cited: bool  # entailment-check the claim tables' facts before judging
+    max_claims_per_opportunity: int
+    concurrency: int
+    max_output_tokens: int
+
+    @model_validator(mode="after")
+    def _check(self) -> "ScoreDefaults":
+        if sum(self.weights.values()) != 100:
+            raise ValueError(f"score.weights must sum to 100, not {sum(self.weights.values())}")
+        levels = self.economic_impact_levels_usd_month
+        if len(levels) != 4 or levels != sorted(levels):
+            raise ValueError("score.economic_impact_levels_usd_month needs 4 ascending boundaries")
+        return self
+
+
 class Defaults(BaseModel):
     """Typed view of config/defaults.yaml."""
 
@@ -273,6 +343,7 @@ class Defaults(BaseModel):
     competitors: CompetitorsDefaults
     buyers: BuyersDefaults
     monetization: MonetizationDefaults
+    score: ScoreDefaults
 
 
 @lru_cache

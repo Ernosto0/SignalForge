@@ -1,0 +1,30 @@
+# Validation experiment catalogue (plan §8.6; agent-modules.md §8). The scorer picks the claim
+# with the highest importance × uncertainty, then the cheapest experiment (cash cost, then
+# duration) whose `tests` include that claim's heaviest factor. `pass_fail` placeholders:
+# {segment}, {statement} (the claim) and {price_usd} (price ceiling low, USD/month).
+experiments:
+  - name: interviews
+    cost_usd: 0
+    duration_days: 7
+    tests: [severity, frequency, economic_impact, customer_accessibility]
+    pass_fail: "≥ 6 of 10 interviewed {segment} confirm it: {statement}"
+  - name: outreach
+    cost_usd: 0
+    duration_days: 7
+    tests: [customer_accessibility, willingness_to_pay, market_breadth]
+    pass_fail: "≥ 10 of 50 cold-contacted {segment} reply and ≥ 3 book a call about: {statement}"
+  - name: landing_page
+    cost_usd: 100
+    duration_days: 14
+    tests: [willingness_to_pay, market_breadth, customer_accessibility]
+    pass_fail: "≥ 5% of ≥ 200 targeted visitors from {segment} join a waitlist priced at ${price_usd}/month"
+  - name: concierge
+    cost_usd: 200
+    duration_days: 21
+    tests: [severity, frequency, economic_impact, competition_gap]
+    pass_fail: "≥ 2 of 5 {segment} use a manual version weekly for 3 weeks, confirming: {statement}"
+  - name: paid_pilot
+    cost_usd: 500
+    duration_days: 30
+    tests: [willingness_to_pay, competition_gap, economic_impact]
+    pass_fail: "≥ 3 of 10 contacted {segment} agree to a paid pilot at ≥ ${price_usd}/month"

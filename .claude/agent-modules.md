@@ -120,7 +120,7 @@ Milestones refer to [plan.md §13](plan.md#13-milestones-each-with-an-exit-crite
 | 5 | `competitor_research.py` | `competitors` | analysis | **yes** | M4 | ✅ built, live on run 22 |
 | 6 | `buyer_research.py` | `buyers` | analysis | no | M5 | ✅ built, live on run 22 |
 | 7 | `monetization.py` | `monetization` (Gate 2) | analysis + code | no | M5 | ✅ built, live on run 22 |
-| 8 | `opportunity_scorer.py` | `score` | analysis + code | no | M5 | to build |
+| 8 | `opportunity_scorer.py` | `score` | analysis + code | no | M5 | ✅ built, live on run 22 |
 | 9 | `report_writer.py` | `report` | synthesis | no | M6 | to build |
 
 Shared code these agents use (new files, under plan §12's layout):
@@ -1177,15 +1177,31 @@ a `per_opportunity` list.
 experiment, all fully explainable from a rule trace and cited claims.
 
 **Stages.** `score` (`pipeline/stages/score.py`). The logic lives in `scoring/` as plan §12 says:
-`rubric.yaml`, `config.yaml`, `scorer.py`, `categories.py`, `experiments.py`, `experiments.yaml`.
+`rubric.yaml`, `scorer.py`, `categories.py`, `experiments.py`, `experiments.yaml`. Thresholds are
+the `score:` block in `config/defaults.yaml` (rule 5 of §0.3), not a `scoring/config.yaml`; the
+evidence strength weights stay in its `strength:` block.
 
 **Reads.** `opportunities` (passed), their clusters (with evidence strength), the claim table
 (signals, gap inferences, buyer roles, economic model, WTP signals), and the request's `founder`.
 
 **Writes.** `score_cards`: `factors`, `attractiveness`, `confidence`, `founder_fit`, `category`,
 `rule_trace`, and the new column `experiment` (JSON). Knocked-out opportunities get a ScoreCard
-with `category="weak"`, no factors, and a rule trace that copies their knock-outs, so the report
-treats every opportunity the same way.
+with `category="weak"`, no factors, a rule trace that copies their knock-outs (`gate2.<rule>`),
+and null `attractiveness`, `confidence` and `founder_fit` (not assessed), so the report treats
+every opportunity the same way. With `entail_cited`, `score` sets `Claim.entailment` on the
+claim tables' unchecked facts with `meta.entailment_by = "score"` (`reset` clears exactly those
+via `clear_entailment`; re-runs answer from the cache).
+
+Stored shapes (claim ids are database ids):
+```text
+factors    = {<factor>: {level, weight, source: model|code, justification, claim_ids, capped,
+                         judges: [levels], spread, floor?, missing?}}
+rule_trace = [{rule, factor?, fired | result, inputs, ...}]  # factor.economic_impact,
+             # factor.market_breadth, wtp_floor, uncited_cap / no_gap_cap / missing_factor
+             # (per judge), confidence, founder_fit (with the feasibility answer), category.<each>
+experiment = {claim_id, factor, importance, uncertainty, score, name, cost_usd, duration_days,
+              pass_fail} | null
+```
 
 **Model.** `analysis` tier, prompt `prompts/score.md` (rubric judgments) and
 `prompts/founder_fit.md` (feasibility only).
@@ -1217,14 +1233,20 @@ class FeasibilityJudgment(BaseModel):
 | Factor | Weight | How the level is set |
 |---|---|---|
 | severity | 20 | model on the rubric, citing signal claims |
-| economic_impact | 20 | **code**: `value_usd_month` midpoint → level, via thresholds in `scoring/config.yaml` |
+| economic_impact | 20 | **code**: `value_usd_month` midpoint → level (1 + boundaries ≤ midpoint); level 1 without a valid model |
 | frequency | 10 | model on the rubric (daily → rare) |
-| competition_gap | 15 | model, citing gap inferences; no gap claims → max level 2 |
-| willingness_to_pay | 15 | model, citing WTP signals; a floor of 3 if ≥2 independent paid competitors with observed prices |
-| customer_accessibility | 10 | model, citing channel claims |
-| market_breadth | 10 | model, citing breadth facts; `unknown` → max level 2 |
+| competition_gap | 15 | model, citing gap inferences and the competitor facts they derive from; no targeted gap → max level 2 |
+| willingness_to_pay | 15 | model, citing WTP signals; a floor of 3 if ≥2 **distinct** competitors have a price convertible to USD/month whose fact hasn't failed entailment (price rows are not counted) |
+| customer_accessibility | 10 | model; channels are uncited context, not claims, so the uncited cap applies (any cited fact, e.g. a competitor segment fact, lifts it); for the hypothesis share it is fact-backed only through a fact a buyer role cites |
+| market_breadth | 10 | **code** while breadth search is deferred: `not_searched` → level 2 with a trace note |
 
 **Algorithm, per passed opportunity:**
+0. **Claim table** (local numbers 1..n): the cluster inference, counted signal facts (capped),
+   the targeted gap inferences **plus the competitor facts they derive from** (gap inferences are
+   not facts, so citing them alone would always hit the uncited cap), competitor price and
+   segment facts (competitor facts carry a `competitor` field; the prompt counts distinct
+   competitors, not price rows), buyer-role claims, assumption claims. With `entail_cited`, every fact in the
+   tables and every counted signal fact is entailment-checked first; failed facts leave the table.
 1. **First pass:** one rubric call → `RubricJudgments`.
 2. **Validate:**
    - Each judged factor appears exactly once.
@@ -1238,28 +1260,36 @@ class FeasibilityJudgment(BaseModel):
    differ. Each factor takes the median level. The spread (max − min per factor) is recorded.
 5. **Confidence** (`scorer.py`, rule-based, thresholds in config):
    - from evidence strength,
-   - the share of factor weight resting only on hypotheses or unsourced assumptions,
-   - the maximum judgment spread.
+   - the share of factor weight resting only on hypotheses or unsourced assumptions (a factor
+     counts when its citations include no fact; `economic_impact` by the unsourced share of its
+     assumptions; `market_breadth` fully while unsearched; `customer_accessibility` fully unless
+     it cites a fact that one of the opportunity's buyer roles cites, because a competitor segment
+     fact shows whom competitors sell to, not that these buyers are reachable; the trace notes
+     it),
+   - the maximum judgment spread (none with a single judge, which therefore can't be High).
    - High needs all three; Low if any one fails its floor.
 6. **Founder fit** (plan §8.4):
    - Feasibility call → `FeasibilityJudgment`.
    - Then rules: `not_fit` if there is any hard barrier backed by a fact claim (e.g. GİB özel
      entegratör licence), or if the price ceiling high is below the founder minimum.
-   - `stretch` if mvp is `stretch` or the sales motion doesn't match the team (e.g. field sales for
-     a solo developer).
+   - `stretch` if mvp is `stretch` or `no`, or the sales motion is in `stretch_sales_motions`
+     (`FounderProfile.team` is free text, so V0 assumes a small team: field sales, enterprise),
+     or the feasibility call failed. The trace records `mvp_feasible` and the whole answer.
    - Otherwise `fit`.
 7. **Category** (`categories.py`, plan §8.5, evaluated in this order, first match wins; every rule
    checked is appended to `rule_trace` with its inputs):
-   - `false_positive` — the cluster's inference has fewer than `min_supported_facts` facts that
-     passed entailment.
-   - `weak` — no budget owner, ceiling < minimum, or severity ≤ 2.
+   - `false_positive` — the problem has fewer than `min_supported_facts` counted signal facts
+     with entailment `supported` or `partial`.
+   - `weak` — a null budget owner, ceiling < minimum, or severity ≤ 2.
    - `competitive` — competition_gap ≤ 2 and WTP ≥ 4.
-   - `strong` — attractiveness ≥ 75, evidence strength ≥ 7, budget owner, and gap ≥ 3.
+   - `strong` — attractiveness ≥ 75, evidence strength ≥ 7, a budget owner citing ≥ 1 fact or
+     inference (a hypothesis alone is not enough), and gap ≥ 3.
    - `interesting` — otherwise.
 8. **Validation experiment** (`experiments.py`, plan §8.6):
    - For each claim the score rests on: `importance = weight of the factors citing it`, and
      `uncertainty` from its kind (`hypothesis` 1.0, unsourced `assumption` 0.9, sourced
-     `assumption` 0.5, `inference` 0.4, `partial` fact 0.3, `supported` fact 0.1).
+     `assumption` 0.5, `inference` 0.4, `partial` fact 0.3, unchecked fact 0.3, `supported`
+     fact 0.1).
    - Pick the claim with the maximum `importance × uncertainty`.
    - Choose the cheapest experiment in `experiments.yaml` whose `tests` list includes that claim's
      factor (catalogue: interviews, outreach, landing page, concierge, paid pilot; each with
@@ -1267,33 +1297,39 @@ class FeasibilityJudgment(BaseModel):
    - Fill the template with the claim, e.g. "≥ 3 of 10 contacted fleet owners agree to a paid
      pilot at ≥ $X/month".
 
-**Config** (`scoring/config.yaml`, which also holds the evidence strength weights):
+**Config** (`config/defaults.yaml`, `score:`; all thresholds provisional, tuned in M7):
 ```yaml
-weights: { severity: 20, economic_impact: 20, frequency: 10, competition_gap: 15,
-           willingness_to_pay: 15, customer_accessibility: 10, market_breadth: 10 }
-uncited_cap: 2
-k_judges: 3
-k_judge_top_n: 5
-economic_impact_levels_usd_month: [25, 75, 200, 500]   # level boundaries 1|2|3|4|5; provisional
-confidence:
-  high: { min_strength: 7, max_hypothesis_share: 0.25, max_spread: 1 }
-  low:  { min_strength: 5, max_hypothesis_share: 0.5,  max_spread: 2 }
-categories:
-  strong: { min_attractiveness: 75, min_strength: 7, min_gap: 3 }
-  competitive: { max_gap: 2, min_wtp: 4 }
-  weak: { max_severity: 2 }
-  false_positive: { min_supported_facts: 3 }
-strength:
-  count_saturation: 10
-  diversity_saturation: 4
-  tier_weights: { high: 1.0, medium: 0.6, low: 0.2 }
-  snippet_only_factor: 0.5
-  recency_months: 24
-  weights: { count: 0.35, diversity: 0.15, quality: 0.20, recency: 0.10, directness: 0.20 }
+score:
+  weights: { severity: 20, economic_impact: 20, frequency: 10, competition_gap: 15,
+             willingness_to_pay: 15, customer_accessibility: 10, market_breadth: 10 }
+  uncited_cap: 2
+  no_gap_cap: 2
+  market_breadth_unsearched_level: 2
+  wtp_floor: { min_competitors: 2, level: 3 }
+  economic_impact_levels_usd_month: [25, 75, 200, 500]   # level boundaries 1|2|3|4|5
+  k_judges: 3
+  k_judge_top_n: 5
+  confidence:
+    high: { min_strength: 7, max_hypothesis_share: 0.25, max_spread: 1 }
+    low:  { min_strength: 5, max_hypothesis_share: 0.5,  max_spread: 2 }
+  categories:
+    strong: { min_attractiveness: 75, min_strength: 7, min_gap: 3 }
+    competitive: { max_gap: 2, min_wtp: 4 }
+    weak: { max_severity: 2 }
+    false_positive: { min_supported_facts: 3 }
+  uncertainty: { hypothesis: 1.0, assumption_unsourced: 0.9, assumption_sourced: 0.5,
+                 inference: 0.4, fact_partial: 0.3, fact_unchecked: 0.3, fact_supported: 0.1 }
+  stretch_sales_motions: [field_sales, enterprise]
+  entail_cited: true
+  max_claims_per_opportunity: 60
+  concurrency: 4
+  max_output_tokens: 4000
 ```
 
-**Metrics:** cards by category; confidence mix; founder fit mix; capped factors; median judgment
-spread; cost of the k-judge pass.
+**Metrics:** cards by category; confidence mix; founder fit mix; capped factors; WTP floors;
+missing factors; invalid citations; `judge_calls` and median judgment spread (cost: the StageRun);
+failed calls (rubric / extra judges / feasibility); entailment counts and unchecked facts; a
+`per_opportunity` list.
 
 **Tests** (`tests/test_opportunity_scorer.py`):
 - An uncited factor is capped at 2.
@@ -1302,9 +1338,13 @@ spread; cost of the k-judge pass.
 - Each category rule fires on a fixture, and the rule trace lists every checked rule.
 - Founder fit `not_fit` on a fact-backed licence barrier.
 - The experiment picks the max importance × uncertainty claim.
+- Also: the no-gap cap; the WTP floor counts competitors, not price rows; confidence bands (one
+  judge can't be High); a re-run is idempotent; a failed rubric call leaves no card (the exit
+  check reports it) and a failed feasibility call gives `stretch`; `check_score_cards` flags a
+  tampered card.
 
 **Done when.** This is the M5 exit: each ScoreCard is fully explainable from its rule trace and
-cited claims.
+cited claims. Checked by `evidence/opportunities.check_score_cards`.
 
 ---
 
@@ -1437,7 +1477,7 @@ seeded uncited or hallucinated bullets in tests.
 | `excerpts` | ✅ M4: `stage` String(32) default `extract` (each stage deletes only its own; cluster reads only `extract`) | loop agents (M4) |
 | `gap_matrices` | ✅ M4: `run_id` FK (run-scoped deletes and the exit check) | competitor_research (M4) |
 | `opportunities` | ✅ M5 (`f1a7c3d9e2b4`): `status` String(16), `knockouts` JSONB, `accessibility` JSONB, `market_breadth` JSONB | buyer_research, monetization (M5) |
-| `score_cards` | `experiment` JSONB | opportunity_scorer (M5) |
+| `score_cards` | ✅ M5 (`a2b8d4e6f1c3`): `experiment` JSONB; `attractiveness`, `confidence`, `founder_fit` nullable (knocked-out cards) | opportunity_scorer (M5) |
 
 Collection stages (`extract`, `dedupe`) read only `documents.origin = 'collect'`, and `search`
 searches only collection intents, so loop rows never leak into a collection re-run.
@@ -1496,6 +1536,7 @@ showing in `signalforge status`.
   from live SERP probes.
 - **M5:** the `commercial` split is settled ([plan.md §14](plan.md#14-open-decisions-defaults-chosen-change-here-if-needed),
   2026-10-10: `buyers` + `monetization`). Order: the pack economics entries, `buyer_research`, `monetization`, and finally
-  `opportunity_scorer`.
+  `opportunity_scorer`. ✅ All built and live on run 22 (2026-10-10); the three M5 exit checks
+  are empty.
 - **M6:** schema and validator first (test them against seeded bad bullets before any LLM call),
   then section generation and rendering.

@@ -271,3 +271,43 @@ monetization:
   max_claims_per_opportunity: 60
   concurrency: 4
   max_output_tokens: 4000
+
+# ScoreCards (plan §8): attractiveness from 7 factors on an anchored rubric (scoring/rubric.yaml),
+# confidence, founder fit, a rule-based category and the cheapest validation experiment
+# (scoring/experiments.yaml). Every threshold here is provisional: tune in M7. Evidence strength
+# weights are the `strength` block above.
+score:
+  weights: { severity: 20, economic_impact: 20, frequency: 10, competition_gap: 15,
+             willingness_to_pay: 15, customer_accessibility: 10, market_breadth: 10 }
+  # A factor whose citations include no fact is capped here and flagged (plan §8.2).
+  uncited_cap: 2
+  # competition_gap when the opportunity targets no gap inference.
+  no_gap_cap: 2
+  # Market breadth is not searched yet (buyers stores `status: not_searched`): a fixed level.
+  market_breadth_unsearched_level: 2
+  # WTP is at least `level` when this many distinct competitors show a price that converts to
+  # USD/month and whose price fact has not failed entailment (price rows are not counted).
+  wtp_floor: { min_competitors: 2, level: 3 }
+  # economic_impact: midpoint of value_usd_month; level = 1 + boundaries ≤ midpoint.
+  economic_impact_levels_usd_month: [25, 75, 200, 500]
+  k_judges: 3                  # rubric judgments for the top `k_judge_top_n` (median per factor)
+  k_judge_top_n: 5
+  confidence:
+    high: { min_strength: 7, max_hypothesis_share: 0.25, max_spread: 1 }
+    low:  { min_strength: 5, max_hypothesis_share: 0.5,  max_spread: 2 }
+  categories:
+    strong: { min_attractiveness: 75, min_strength: 7, min_gap: 3 }
+    competitive: { max_gap: 2, min_wtp: 4 }
+    weak: { max_severity: 2 }
+    # Counted signal facts with entailment supported or partial.
+    false_positive: { min_supported_facts: 3 }
+  # How uncertain a cited claim is, for the validation experiment (importance × uncertainty).
+  uncertainty: { hypothesis: 1.0, assumption_unsourced: 0.9, assumption_sourced: 0.5,
+                 inference: 0.4, fact_partial: 0.3, fact_unchecked: 0.3, fact_supported: 0.1 }
+  # Sales motions a small founding team can't run in the MVP window → founder fit `stretch`.
+  stretch_sales_motions: [field_sales, enterprise]
+  # Entailment-check every fact in the claim tables first; failed facts leave the table.
+  entail_cited: true
+  max_claims_per_opportunity: 60
+  concurrency: 4
+  max_output_tokens: 4000
