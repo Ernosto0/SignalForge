@@ -108,7 +108,7 @@ stage doesn't pay again for the earlier ones.
 ### 1. Clone and configure
 
 ```bash
-git clone <this-repo-url> signalforge
+git clone https://github.com/Ernosto0/SignalForge.git signalforge
 cd signalforge
 cp .env.example .env
 ```
