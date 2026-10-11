@@ -35,6 +35,8 @@ GUIDANCE: dict[str, str] = {
     "to the gap and the user's workflow.",
     "mvp": "Recommend the smallest first version, as kind recommendation (uncited allowed), "
     "within the founder's constraints in the extra sources.",
-    "validation_experiment": "Recommend how to run the stored experiment (extra sources), as kind "
-    "recommendation. Do not change its test or pass criterion.",
+    "validation_experiment": "The stored experiment (extra sources) is already the section's first "
+    "bullet. Add only what it leaves out, as kind recommendation: where to find the people to "
+    "test it with (channel claims), and what to ask or show them. Do not restate its method, "
+    "test, pass criterion, cost or duration.",
 }

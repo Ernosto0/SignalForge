@@ -127,12 +127,18 @@ class LoopTrace:
     llm_cache_hits: int = 0
     read_urls: set[str] = field(default_factory=set)  # canonical URLs fetched (or tried)
 
+    @property
+    def searches_live(self) -> int:
+        """Answered searches that missed the cache: the ones a provider bills."""
+        return sum(not s.cache_hit and s.error is None for s in self.searches)
+
     def summary(self) -> dict[str, Any]:
         """Compact, JSON-safe record for StageRun metrics and ProblemCluster.verification."""
         return {
             "stop_reason": self.stop_reason,
             "steps": self.steps,
             "searches": len(self.searches),
+            "searches_live": self.searches_live,
             "fetches": len(self.pages) + len(self.failed_fetches),
             "pages": len(self.pages),
             "failed_fetches": len(self.failed_fetches),

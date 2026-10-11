@@ -11,14 +11,22 @@ from test_buyer_research import NoSearch
 from test_monetization import _answer, _seed_opportunities
 
 from signalforge.config import get_defaults
-from signalforge.db.models import Excerpt, Opportunity, ProblemCluster, ScoreCard, Signal
+from signalforge.db.models import (
+    Claim,
+    Competitor,
+    Excerpt,
+    Opportunity,
+    ProblemCluster,
+    ScoreCard,
+    Signal,
+)
 from signalforge.domain.commercial import ValueModelDraft
 from signalforge.domain.scoring import FactorJudgment, FeasibilityJudgment, RubricJudgments
 from signalforge.evidence.claims import add_fact
 from signalforge.evidence.opportunities import check_score_cards
 from signalforge.pipeline.runner import create_run, run_stage
 from signalforge.pipeline.stages.monetization import Monetization
-from signalforge.pipeline.stages.score import Score
+from signalforge.pipeline.stages.score import Score, load
 from signalforge.providers.llm import LLMError
 from signalforge.scoring.categories import ORDER, CategoryInputs, categorize
 from signalforge.scoring.experiments import (
@@ -35,6 +43,7 @@ from signalforge.scoring.scorer import (
     economic_impact,
     founder_fit,
     hypothesis_share,
+    median_founder_fit,
     merge_judges,
     validate_judgments,
 )
@@ -211,6 +220,16 @@ def test_founder_fit_rules() -> None:
     result, entry = founder_fit(None, [], 140.0, FOUNDER, CFG)
     assert result == "stretch" and entry["reasons"] == ["feasibility_unavailable"]
     assert founder_fit(_feasible(), [], 140.0, FOUNDER, CFG)[0] == "fit"
+
+
+def test_founder_fit_is_the_median_of_the_samples() -> None:
+    yes, stretch = (_feasible(), []), (_feasible(mvp_feasible="stretch"), [])
+    result, entry = median_founder_fit([yes, stretch, yes], 140.0, FOUNDER, CFG)
+    assert result == "fit" and entry["inputs"]["samples"] == ["fit", "stretch", "fit"]
+    assert median_founder_fit([yes, stretch, stretch], 140.0, FOUNDER, CFG)[0] == "stretch"
+    assert median_founder_fit([yes, stretch], 140.0, FOUNDER, CFG)[0] == "stretch"  # even: worse
+    result, entry = median_founder_fit([], 140.0, FOUNDER, CFG)
+    assert result == "stretch" and entry["reasons"] == ["feasibility_unavailable"]
 
 
 # --- categories -----------------------------------------------------------------------------
@@ -391,6 +410,25 @@ def test_score_stage_writes_explainable_cards(db) -> None:
     assert len(llm.calls) == calls
 
 
+def test_the_wtp_floor_counts_prices_of_any_period(db) -> None:
+    run_id = create_run(db, PLAN, PACK, DEFAULTS)
+    ids = _seed_scoring(db, run_id)
+    with db.begin() as session:
+        excerpt_id = session.get(Claim, ids["segment"]).supports[0]
+        other = Competitor(run_id=run_id, problem_id=ids["problem"], name="Logo WMS",
+                           url="https://logo.example")  # fmt: skip
+        session.add(other)
+        session.flush()
+        price = add_fact(session, run_id, "Logo WMS costs 9,000 TRY.", [excerpt_id],
+                         stage="competitors",
+                         meta={"competitor_id": other.id, "kind": "price"})  # fmt: skip
+        other.pricing = [{"amount": 9000, "currency": "TRY", "period": "unknown",
+                          "claim_id": price.id}]  # fmt: skip
+    ctx = make_context(db, run_id, NoSearch(), FakeLLM({}))
+    road = next(t for t in load(ctx, DEFAULTS.score) if t.id == ids["Road freight firms"])
+    assert road.floor == {"Rota Pro": [ids["price"]], "Logo WMS": [price.id]}
+
+
 def test_failed_calls_and_the_exit_check(db) -> None:
     run_id = create_run(db, PLAN, PACK, DEFAULTS)
     ids = _seed_scoring(db, run_id)
@@ -400,7 +438,7 @@ def test_failed_calls_and_the_exit_check(db) -> None:
 
     row = run_stage(make_context(db, run_id, NoSearch(), _llm(fail, fail)), Score())
     assert row.status == "completed", row.error
-    assert row.metrics["llm_failures"] == {"rubric": 1, "extra_judges": 0, "feasibility": 1}
+    assert row.metrics["llm_failures"] == {"rubric": 1, "extra_judges": 0, "feasibility": 3}
     assert row.metrics["cards"] == 1
     with db() as session:
         errors = check_score_cards(session, run_id)

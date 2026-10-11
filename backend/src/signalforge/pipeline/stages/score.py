@@ -12,17 +12,19 @@ rule trace and cited claims.
    The model sees local numbers 1..n.
 3. **Rubric** (``score`` prompt, analysis tier): the model judges five factors; code caps a factor
    that cites no fact (``uncited_cap``) and ``competition_gap`` without a targeted gap
-   (``no_gap_cap``), applies the WTP floor (distinct competitors with a price convertible to
-   USD/month), and sets ``economic_impact`` (value midpoint) and ``market_breadth`` (not searched:
+   (``no_gap_cap``), applies the WTP floor (distinct competitors with a positive price, any
+   period), and sets ``economic_impact`` (value midpoint) and ``market_breadth`` (not searched:
    a fixed level). The top ``k_judge_top_n`` by first-pass attractiveness get ``k_judges`` judges
    in total (``judge_index`` in the input, so cache keys differ); each factor takes the median.
 4. **Confidence** from evidence strength, the hypothesis share of factor weight and the judges'
-   spread; **founder fit** from a feasibility call (``founder_fit`` prompt) and rules;
+   spread; **founder fit**: rules over ``feasibility_judges`` feasibility calls (``founder_fit``
+   prompt), taking the median verdict;
    **category** by rules in order; the **experiment** tests the claim with the highest
    importance × uncertainty (``scoring/``).
 
 A failed first rubric call leaves that opportunity without a card (the exit check reports it); a
-failed extra judge only shrinks the sample; a failed feasibility call makes the fit ``stretch``.
+failed extra judge or feasibility call only shrinks its sample; with no feasibility answer at all
+the fit is ``stretch``.
 """
 
 import json
@@ -52,7 +54,6 @@ from signalforge.prompts import load_prompt
 from signalforge.providers.cache import cache_key
 from signalforge.providers.llm import BudgetExceeded, LLMError, ModelTier
 from signalforge.scoring.categories import CategoryInputs, categorize
-from signalforge.scoring.economics import monthly_usd
 from signalforge.scoring.experiments import (
     load_catalogue,
     pick_experiment,
@@ -65,9 +66,9 @@ from signalforge.scoring.scorer import (
     Judge,
     code_factors,
     confidence,
-    founder_fit,
     hypothesis_share,
     load_rubric,
+    median_founder_fit,
     merge_judges,
     validate_judgments,
 )
@@ -166,7 +167,7 @@ def rubric_input(t: Target, plan: ResearchPlan, pack: MarketPack, judge_index: i
     return json.dumps(payload, ensure_ascii=False, indent=1)
 
 
-def feasibility_input(t: Target, plan: ResearchPlan, pack: MarketPack) -> str:
+def feasibility_input(t: Target, plan: ResearchPlan, pack: MarketPack, judge_index: int = 0) -> str:
     founder = plan.request.founder
     payload = {
         "founder": founder.model_dump(exclude={"min_customer_value_usd_month"}),
@@ -175,6 +176,7 @@ def feasibility_input(t: Target, plan: ResearchPlan, pack: MarketPack) -> str:
         "problem": t.problem,
         "opportunity": {k: v for k, v in _opportunity_payload(t).items() if k != "gap_claims"},
         "claims": _claims_payload(t.table),
+        "judge_index": judge_index,
     }
     return json.dumps(payload, ensure_ascii=False, indent=1)
 
@@ -213,8 +215,7 @@ def score_card(
     t: Target,
     judges: list[Judge],
     code: CodeFactors,
-    feasibility: FeasibilityJudgment | None,
-    barrier_ids: list[int],
+    feasibility: list[tuple[FeasibilityJudgment, list[int]]],
     founder: dict[str, Any],
     cfg: ScoreDefaults,
 ) -> dict[str, Any]:
@@ -228,9 +229,7 @@ def score_card(
     )
     em = t.economic_model
     ceiling = em["price_ceiling_usd_month"] if em.get("status") == "ok" else None
-    fit, fit_entry = founder_fit(
-        feasibility, barrier_ids, ceiling[1] if ceiling else None, founder, cfg
-    )
+    fit, fit_entry = median_founder_fit(feasibility, ceiling[1] if ceiling else None, founder, cfg)
     minimum = founder["min_customer_value_usd_month"]
     category, category_trace = categorize(
         CategoryInputs(
@@ -389,8 +388,9 @@ def _table(
                 continue
             add(claim.id, PRICE, competitor=comp.name)
             amount = float(p.get("amount") or 0)
-            usd = monthly_usd(amount, p.get("currency") or "", p.get("period"), pack.currency, fx)
-            if usd is not None and claim.id not in floor.get(comp.name, []):
+            # Any positive price shows customers pay, whatever its period (M5: Logo WMS's
+            # `unknown` period kept a paid competitor out of the floor).
+            if amount > 0 and claim.id not in floor.get(comp.name, []):
                 floor.setdefault(comp.name, []).append(claim.id)
     own_ids = {comp.id for comp in own}
     for c in claims.values():
@@ -458,15 +458,23 @@ class Score:
         def judge(t: Target, i: int) -> RubricJudgments | None:
             return ask(RubricJudgments, prompt, rubric_input(t, plan, ctx.pack, i))
 
-        def feasible(t: Target) -> FeasibilityJudgment | None:
-            return ask(FeasibilityJudgment, fit_prompt, feasibility_input(t, plan, ctx.pack))
+        def feasible(t: Target, i: int) -> FeasibilityJudgment | None:
+            return ask(FeasibilityJudgment, fit_prompt, feasibility_input(t, plan, ctx.pack, i))
 
         def pooled(fn: Callable[..., Any], *args: list[Any]) -> list[Any]:
             with ThreadPoolExecutor(max_workers=max(cfg.concurrency, 1)) as pool:
                 return list(pool.map(fn, *args))
 
         first = pooled(judge, passed, [0] * len(passed))
-        feasibility = pooled(feasible, passed)
+        samples = [(t, i) for t in passed for i in range(max(cfg.feasibility_judges, 1))]
+        answers = pooled(feasible, [t for t, _ in samples], [i for _, i in samples])
+        feasibility: dict[int, list[tuple[FeasibilityJudgment, list[int]]]] = {
+            t.id: [] for t in passed
+        }
+        for (t, _), f in zip(samples, answers, strict=True):
+            notes["feasibility_failures"] += f is None
+            if f is not None:
+                feasibility[t.id].append((f, barrier_facts(f, t.table, notes)))
         judges: dict[int, list[Judge]] = {}
         for t, r in zip(passed, first, strict=True):
             if r is not None:
@@ -489,20 +497,19 @@ class Score:
         for t in targets:
             if t.status == "knocked_out":
                 cards[t.id] = knocked_out_card(t)
-        for t, f in zip(passed, feasibility, strict=True):
-            notes["feasibility_failures"] += f is None
+        for t in passed:
             if t.id not in judges:
                 notes["rubric_failures"] += 1
                 continue
-            barrier_ids = barrier_facts(f, t.table, notes) if f else []
             for j in judges[t.id]:
                 notes.update(j.notes)
-            cards[t.id] = score_card(t, judges[t.id], codes[t.id], f, barrier_ids, founder, cfg)
+            cards[t.id] = score_card(t, judges[t.id], codes[t.id], feasibility[t.id], founder, cfg)
         with ctx.db.begin() as session:
             for opportunity_id, card in cards.items():
                 write(session, opportunity_id, card)
 
         metrics = score_metrics(targets, cards, notes, len(passed) + len(extra), entailment)
+        metrics["feasibility_calls"] = len(samples)
         rubric = load_rubric()
         input_hash = cache_key(
             {

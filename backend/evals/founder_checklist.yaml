@@ -1,0 +1,30 @@
+# Founder checklist (plan §11, M7 exit): the questions a founder answers about one scored
+# opportunity after reading its section of report.md. `signalforge label opportunities <run>`
+# asks them in order and stores the verdict as a Label (target_type "opportunity", value =
+# investigate | maybe | no) with the answers in the label's note.
+#
+# M7 exit: verdict `investigate` for ≥1 opportunity in ≥3 markets.
+version: 1
+
+questions:
+  - id: real_problem
+    text: The quotes show a real, recurring problem of businesses in this market (not consumers, not a one-off).
+  - id: software_shaped
+    text: A small team's software could take this work over or cut it a lot.
+  - id: payer
+    text: I can name who at the customer would pay for it.
+  - id: gap
+    text: The competitor facts leave a gap a new product could fill (price, fit, missing feature).
+  - id: reachable
+    text: I know where to find the first 10 customers.
+  - id: feasible
+    text: An MVP is feasible within the plan's MVP months for the stated team.
+  - id: numbers_believable
+    text: The value range and price ceiling are believable.
+
+verdict:
+  question: Would you investigate this (spend a week on customer interviews)?
+  choices:
+    y: investigate
+    m: maybe
+    n: "no"

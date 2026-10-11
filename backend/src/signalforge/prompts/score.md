@@ -1,6 +1,6 @@
 ---
 id: score
-version: 2
+version: 3
 ---
 You judge how attractive one B2B SaaS opportunity is, **if** its claims are true, on an anchored
 rubric. You only set levels and cite claims; code computes the score, caps unsupported levels and
@@ -27,6 +27,11 @@ Rules:
 3. Where to look:
    - `severity` and `frequency`: `signal` facts (complaints, job ads, first-hand reports) and the
      problem's inference.
+   - `frequency` when no claim states a cadence: work done per unit (each invoice, file,
+     shipment, order, claim) or that a job ad hires someone to do as a standing duty recurs at
+     least weekly, so take level 3 and cite those facts. Level 1 ("a few times a year") needs a
+     claim showing the work is occasional, and level 2 a claim showing a monthly cycle; a missing
+     cadence is not evidence of either.
    - `competition_gap`: `gap` inferences and the `gap_evidence` competitor facts behind them. If
      the opportunity targets no gap, code caps this factor at 2.
    - `willingness_to_pay`: `competitor_price` facts and `labor_spend` job ads (money already

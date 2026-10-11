@@ -66,6 +66,7 @@ class CacheDefaults(BaseModel):
 class SearchDefaults(BaseModel):
     results_per_query: int
     timeout_s: float
+    usd_per_query: dict[str, float] = {}
 
 
 class FetchDefaults(BaseModel):
@@ -145,6 +146,8 @@ class ClusterDefaults(BaseModel):
     max_clusters: int
     max_signals_per_call: int
     merge_pass: bool
+    reassign_noise: bool  # offer the model's noise to the final clusters once more
+    assign_batch: int  # signals per cluster_assign call in that pass
     min_cluster_size: int
     keep_regulatory_singletons: bool
     max_output_tokens: int
@@ -289,7 +292,7 @@ class ScoreCategories(BaseModel):
 
 
 class WtpFloor(BaseModel):
-    min_competitors: int  # distinct competitors with a price convertible to USD/month
+    min_competitors: int  # distinct competitors with a positive price (any period)
     level: int
 
 
@@ -305,6 +308,7 @@ class ScoreDefaults(BaseModel):
     confidence: ScoreConfidence
     categories: ScoreCategories
     uncertainty: dict[str, float]  # claim kind (see scoring/experiments.py) -> 0..1
+    feasibility_judges: int  # feasibility calls per opportunity; founder fit takes the median
     stretch_sales_motions: list[str]
     entail_cited: bool  # entailment-check the claim tables' facts before judging
     max_claims_per_opportunity: int

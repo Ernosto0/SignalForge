@@ -8,8 +8,9 @@ is explainable from its trace and cited claims.
   ``market_breadth`` (breadth not searched yet) are code.
 - A model factor whose valid citations include no fact is capped at ``uncited_cap``;
   ``competition_gap`` is capped at ``no_gap_cap`` when the opportunity targets no gap.
-- The WTP floor counts distinct competitors with a price convertible to USD/month whose price
-  fact has not failed entailment, never price rows.
+- The WTP floor counts distinct competitors with a positive price (any currency or period: a
+  licence or a price with unknown period still shows customers pay) whose price fact has not
+  failed entailment, never price rows.
 - Caps, floor and code factors apply per judge, before the median, so the median cannot escape
   them.
 """
@@ -405,4 +406,26 @@ def founder_fit(
         }
     entry = {"rule": "founder_fit", "result": result, "inputs": inputs,
              "reasons": not_fit or stretch}  # fmt: skip
+    return result, entry
+
+
+FIT_ORDER = ("fit", "stretch", "not_fit")
+
+
+def median_founder_fit(
+    samples: list[tuple[FeasibilityJudgment, list[int]]],
+    price_ceiling_high: float | None,
+    founder: Mapping[str, Any],
+    cfg: ScoreDefaults,
+) -> tuple[str, dict[str, Any]]:
+    """Founder fit over k feasibility samples (judgment, barrier fact ids): each sample gets a
+    verdict from :func:`founder_fit`, and the card takes the median verdict (fit < stretch <
+    not_fit; the worse one on an even split), with that sample's trace. One call flipped
+    stretch → fit on a resample (run 22, M5). No samples: :func:`founder_fit` without one."""
+    if not samples:
+        return founder_fit(None, [], price_ceiling_high, founder, cfg)
+    verdicts = [founder_fit(f, ids, price_ceiling_high, founder, cfg) for f, ids in samples]
+    ranked = sorted(verdicts, key=lambda v: FIT_ORDER.index(v[0]))
+    result, entry = ranked[len(ranked) // 2]
+    entry["inputs"]["samples"] = [v[0] for v in verdicts]
     return result, entry

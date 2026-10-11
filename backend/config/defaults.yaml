@@ -12,6 +12,10 @@ cache:
 search:
   results_per_query: 10
   timeout_s: 30
+  # USD per live query, for cost-per-run reports (`signalforge evaluate`). Serper: one credit per
+  # query of ≤ 10 results, ≈ $0.001 at the cheapest paid price (reports/serper-ab-2026-10-07).
+  # A provider missing here is reported as searches without a price.
+  usd_per_query: { serper: 0.001 }
 
 fetch:
   user_agent: "SignalForge/0.1 (+evidence research bot; respects robots.txt)"
@@ -149,6 +153,11 @@ cluster:
   # the same business + workflow. Run #6 (181 signals, one call) split one fleet-tracking problem
   # into 6 clusters even with the prompt rule.
   merge_pass: true
+  # Offer the signals the model put in noise to the final clusters once more (cluster_assign
+  # prompt, null allowed), at most `assign_batch` per call. M7 accounting run: 254 of 376 signals
+  # were noise, many of them plain members of the model's own clusters.
+  reassign_noise: true
+  assign_batch: 100
   # Smaller clusters go to noise: one signal is not a problem pattern.
   min_cluster_size: 2
   # A lone regulatory signal (one obligation, one official source) may form its own cluster.
@@ -285,8 +294,9 @@ score:
   no_gap_cap: 2
   # Market breadth is not searched yet (buyers stores `status: not_searched`): a fixed level.
   market_breadth_unsearched_level: 2
-  # WTP is at least `level` when this many distinct competitors show a price that converts to
-  # USD/month and whose price fact has not failed entailment (price rows are not counted).
+  # WTP is at least `level` when this many distinct competitors show a positive price (any
+  # currency or period: one-time licences and unknown periods count too) and whose price fact
+  # has not failed entailment (price rows are not counted).
   wtp_floor: { min_competitors: 2, level: 3 }
   # economic_impact: midpoint of value_usd_month; level = 1 + boundaries ≤ midpoint.
   economic_impact_levels_usd_month: [25, 75, 200, 500]
@@ -304,6 +314,9 @@ score:
   # How uncertain a cited claim is, for the validation experiment (importance × uncertainty).
   uncertainty: { hypothesis: 1.0, assumption_unsourced: 0.9, assumption_sourced: 0.5,
                  inference: 0.4, fact_partial: 0.3, fact_unchecked: 0.3, fact_supported: 0.1 }
+  # Feasibility calls per opportunity; founder fit is the median of their verdicts (one call
+  # flipped stretch → fit on a resample of run 22, M5).
+  feasibility_judges: 3
   # Sales motions a small founding team can't run in the MVP window → founder fit `stretch`.
   stretch_sales_motions: [field_sales, enterprise]
   # Entailment-check every fact in the claim tables first; failed facts leave the table.

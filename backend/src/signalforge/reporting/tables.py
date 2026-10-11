@@ -261,7 +261,7 @@ def section_table(
     elif key == "validation_experiment":
         cited = set(card["factors"].get(experiment.get("factor"), {}).get("claim_ids") or [])
         groups = [[r for r in pool if r.id == experiment.get("claim_id")],
-                  [r for r in pool if r.id in cited]]  # fmt: skip
+                  [r for r in pool if r.id in cited], by(CHANNEL)]  # fmt: skip
         extra += experiment_extra(card)
     else:
         raise ValueError(f"unknown section {key!r}")

@@ -43,8 +43,9 @@ from signalforge.providers.llm import LLMError
 
 DEFAULTS = get_defaults()
 EXTRACT = DEFAULTS.extract
-# Single-call clustering without the second merge look, unless a test turns it on.
-CLUSTER = DEFAULTS.cluster.model_copy(update={"merge_pass": False})
+# Single-call clustering without the second merge look or the noise pass, unless a test turns
+# them on.
+CLUSTER = DEFAULTS.cluster.model_copy(update={"merge_pass": False, "reassign_noise": False})
 ROAD, CUSTOMS = "Road freight", "Customs brokerage"
 
 
@@ -249,6 +250,29 @@ def test_cluster_validation_makes_every_signal_appear_once() -> None:
     assert (n["unknown_ids"], n["repeated_ids"], n["missing_ids"]) == (1, 2, 2)
     assert (n["reassigned"], n["leftover_noise"], n["too_small_ids"]) == (1, 1, 1)
     assert ask.asked == ["cluster", "cluster_assign"]
+
+
+def test_noise_is_offered_to_the_final_clusters_in_batches() -> None:
+    def cluster(_: str) -> ClusterBatch:
+        return ClusterBatch(
+            clusters=[ClusterDraft(name="A", description="a", signal_ids=[1, 2])],
+            noise=[3, 4, 5],
+        )
+
+    def assign(prompt_input: str) -> AssignmentBatch:
+        return AssignmentBatch(assignments=[
+            ClusterAssignment(signal_id=i, cluster=0 if i != 5 else None)
+            for i in _ids(prompt_input)
+        ])  # fmt: skip
+
+    cfg = CLUSTER.model_copy(update={"reassign_noise": True, "assign_batch": 2})
+    ask = FakeAsk(cluster=cluster, cluster_assign=assign)
+    result = cluster_signals(_items(5), PLAN, PACK, cfg, ask)
+
+    assert [d.signal_ids for d in result.clusters] == [[1, 2, 3, 4]]
+    assert result.noise == [5]
+    assert (result.notes["noise_offered"], result.notes["noise_reassigned"]) == (3, 2)
+    assert ask.asked == ["cluster", "cluster_assign", "cluster_assign"]
 
 
 def test_repeated_id_stays_with_signals_from_its_own_document() -> None:

@@ -4,23 +4,24 @@ import json
 import random
 import sys
 from collections import defaultdict
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
+from decimal import Decimal
 from itertools import groupby
 from pathlib import Path
-from typing import NoReturn
+from typing import Any, NoReturn
 
 import click
 import typer
 import uvicorn
 import yaml
 from pydantic import ValidationError
-from sqlalchemy import func, select
+from sqlalchemy import Integer, Row, func, select
 from sqlalchemy.exc import OperationalError
 
 from signalforge import __version__
 from signalforge.agents import AGENTS, STAGES, get_agent
-from signalforge.config import CacheMode, get_defaults
+from signalforge.config import BACKEND_DIR, CacheMode, get_defaults
 from signalforge.db.models import (
     Competitor,
     Document,
@@ -29,9 +30,11 @@ from signalforge.db.models import (
     IndependenceGroup,
     Label,
     LLMCall,
+    Opportunity,
     ProblemCluster,
     Query,
     ResearchRun,
+    ScoreCard,
     Signal,
     StageRun,
     UrlCandidate,
@@ -50,6 +53,8 @@ from signalforge.providers.llm import LLMError, LLMUnavailable, ModelTier
 from signalforge.providers.search import SearchError
 from signalforge.providers.urls import domain_of
 from signalforge.reporting.compare import compare_markets, render_comparison, summary
+from signalforge.reporting.evaluation import evaluate_runs, render_evaluation
+from signalforge.reporting.evaluation import summary as evaluation_summary
 from signalforge.reporting.landscape import build_landscape, render_landscape
 
 # Turkish text must print on Windows consoles and through pipes (default there is cp1252).
@@ -271,11 +276,28 @@ def query_gen(
 def ledger(
     limit: int = typer.Option(20, help="Most recent calls to show."),
     run: int | None = typer.Option(None, help="Only calls for this research run."),
+    by: str | None = typer.Option(
+        None, "--by", help="Sum calls and spend by `agent` or `stage` instead of listing calls."
+    ),
 ) -> None:
     """Show recent LLM calls and total spend."""
+    if by not in (None, "agent", "stage"):
+        _fail("--by must be `agent` or `stage`")
+    where = [LLMCall.run_id == run] if run is not None else []
+    if by is not None:
+        try:
+            with get_session_factory()() as session:
+                rows = session.execute(
+                    select(LLMCall.stage, func.count(), func.sum(LLMCall.cache_hit.cast(Integer)),
+                           func.coalesce(func.sum(LLMCall.cost_usd), 0))
+                    .where(*where).group_by(LLMCall.stage)
+                ).all()  # fmt: skip
+        except OperationalError as exc:
+            _fail(f"database unavailable ({exc.orig}).")
+        _print_ledger_groups(rows, by)
+        return
     try:
         with get_session_factory()() as session:
-            where = [LLMCall.run_id == run] if run is not None else []
             calls = session.scalars(
                 select(LLMCall).where(*where).order_by(LLMCall.id.desc()).limit(limit)
             ).all()
@@ -292,6 +314,25 @@ def ledger(
             f"in={c.input_tokens:<6} out={c.output_tokens:<6} ${c.cost_usd:<10} {status}"
         )
     typer.echo(f"\n{count} calls, total ${total}")
+
+
+def _print_ledger_groups(rows: Sequence[Row[Any]], by: str) -> None:
+    """Calls, cache hits and spend per agent (in run order) or per stage. Calls made outside a
+    stage (``llm-check``) or by a stage no agent owns are grouped under ``-``."""
+    agent_of = {name: a.name for a in AGENTS for name in a.stage_names}
+    order = [a.name for a in AGENTS] if by == "agent" else [s.name for s in STAGES]
+    sums: dict[str, list[Any]] = defaultdict(lambda: [0, 0, Decimal(0)])
+    for stage, calls, hits, cost in rows:
+        key = (agent_of.get(stage or "", "-") if by == "agent" else stage) or "-"
+        sums[key][0] += calls
+        sums[key][1] += hits or 0
+        sums[key][2] += cost
+    total = sum((s[2] for s in sums.values()), Decimal(0))
+    for key in sorted(sums, key=lambda k: order.index(k) if k in order else len(order)):
+        calls, hits, cost = sums[key]
+        share = f"{cost / total:>4.0%}" if total else "   -"
+        typer.echo(f"{key:<20} {calls:>6} calls ({hits:>5} cached)  ${cost:<10} {share}")
+    typer.echo(f"\n{sum(s[0] for s in sums.values())} calls, total ${total}")
 
 
 @app.command("purge-cache")
@@ -621,6 +662,32 @@ def compare(
     typer.echo(f"wrote {render_comparison(rows, out)}")
 
 
+@app.command()
+def evaluate(
+    runs: list[int] = typer.Argument(..., help="Full runs to compare (one per market)."),
+    out: Path = typer.Option(Path("reports/evaluation.md"), "--out", help="Markdown report."),
+    as_json: bool = typer.Option(False, "--json", help="Print the rows as JSON."),
+) -> None:
+    """Multi-market evaluation (M7): funnel, categories, founder verdicts and cost per run."""
+    try:
+        rows = evaluate_runs(get_session_factory(), runs, get_defaults())
+    except ValueError as exc:
+        _fail(str(exc))
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    if as_json:
+        typer.echo(json.dumps(evaluation_summary(rows), ensure_ascii=False, indent=2))
+        return
+    for r in rows:
+        total = "-" if r.clean_usd is None else f"${r.clean_usd:.3f}"
+        cats = ", ".join(f"{k} {v}" for k, v in r.categories.items()) or "no cards"
+        typer.echo(
+            f"{r.market:<14} run {r.run_id:>3}  {total:>8}  (LLM ${r.llm_clean_usd:.3f}, "
+            f"{r.live_searches} searches)  {r.wall_s / 60:>3.0f} min  ·  {cats}"
+        )
+    typer.echo(f"wrote {render_evaluation(rows, out)}")
+
+
 _CELL_MARK = {"yes": "yes", "partial": "part", "no": "no", "unknown": "?"}
 
 
@@ -793,6 +860,74 @@ def label_clusters(
                 )
 
 
+FOUNDER_CHECKLIST = BACKEND_DIR / "evals" / "founder_checklist.yaml"
+
+
+def _scored_opportunities(run: int) -> list[tuple[Opportunity, ScoreCard, ProblemCluster]]:
+    """A run's opportunities with their ScoreCards, best first (knocked-out cards last)."""
+    try:
+        with get_session_factory()() as session:
+            rows = session.execute(
+                select(Opportunity, ScoreCard, ProblemCluster)
+                .join(ScoreCard, ScoreCard.opportunity_id == Opportunity.id)
+                .join(ProblemCluster, ProblemCluster.id == Opportunity.problem_id)
+                .where(Opportunity.run_id == run)
+            ).all()
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    return sorted(((o, c, p) for o, c, p in rows), key=lambda r: -(r[1].attractiveness or -1))
+
+
+@label_app.command("opportunities")
+def label_opportunities(
+    run: int = typer.Argument(..., help="Research run id."),
+    labeler: str = typer.Option(getpass.getuser(), help="Your name, stored with each label."),
+) -> None:
+    """Founder checklist (evals/founder_checklist.yaml) for each scored opportunity, then the
+    verdict: investigate / maybe / no. Read the run's report.md first."""
+    checklist = yaml.safe_load(FOUNDER_CHECKLIST.read_text(encoding="utf-8"))
+    verdicts: dict[str, str] = checklist["verdict"]["choices"]
+    rows = _scored_opportunities(run)
+    labelled = _latest_labels("opportunity", [o.id for o, _, _ in rows])
+    typer.echo(f"{len(rows)} scored opportunities; report: reports/run-{run}/report.md\n"
+               "answer y / n per question, s to skip the opportunity, q to quit")  # fmt: skip
+    db = get_session_factory()
+    for o, card, problem in rows:
+        if (o.id, labeler) in labelled:
+            continue
+        value = o.economic_model.get("value_usd_month") or ["?", "?"]
+        typer.secho(f"\nopportunity #{o.id}  {card.category}", bold=True)
+        typer.echo(
+            f"problem:   {problem.name}\nsegment:   {o.segment}\nangle:     {o.solution_angle}"
+        )
+        typer.echo(
+            f"score:     {card.attractiveness if card.attractiveness is not None else '-'}  ·  "
+            f"confidence {card.confidence or '-'}  ·  founder fit {card.founder_fit or '-'}  ·  "
+            f"value ${value[0]}–{value[1]}/month  ·  Gate 2 {o.status}"
+        )
+        answers: dict[str, str] = {}
+        for q in checklist["questions"]:
+            answer = _ask_verdict(q["text"])
+            if answer in ("s", "q"):
+                break
+            answers[q["id"]] = answer
+        else:
+            choice = typer.prompt(
+                f"{checklist['verdict']['question']} [{'/'.join(verdicts)}]",
+                type=click.Choice(list(verdicts), case_sensitive=False), show_choices=False,
+            ).lower()  # fmt: skip
+            comment = typer.prompt("comment (optional)", default="", show_default=False)
+            note = {"checklist_version": checklist["version"], "answers": answers}
+            if comment:
+                note["comment"] = comment
+            with db.begin() as session:
+                session.add(Label(target_type="opportunity", target_id=o.id, labeler=labeler,
+                                  value=verdicts[choice], note=json.dumps(note)))  # fmt: skip
+            continue
+        if answer == "q":
+            break
+
+
 def _precision(title: str, values: list[str]) -> str:
     yes = values.count("y")
     return f"{title:<30} {yes / len(values):>4.0%}  ({yes}/{len(values)})"
@@ -826,3 +961,11 @@ def labels(run: int = typer.Argument(..., help="Research run id.")) -> None:
         values = [v for (_, who), v in cluster_labels.items() if who == labeler]
         typer.secho(f"\nclusters labelled by {labeler}", bold=True)
         typer.echo(_precision("coherent, distinct problem", values))
+
+    scored = [o.id for o, _, _ in _scored_opportunities(run)]
+    opportunity_labels = _latest_labels("opportunity", scored)
+    for labeler in sorted({who for _, who in opportunity_labels}):
+        values = [v for (_, who), v in opportunity_labels.items() if who == labeler]
+        counts = ", ".join(f"{v} {values.count(v)}" for v in ("investigate", "maybe", "no"))
+        typer.secho(f"\nopportunities labelled by {labeler} (M7 exit: ≥ 1 investigate)", bold=True)
+        typer.echo(f"{len(values)} of {len(scored)} opportunities: {counts}")

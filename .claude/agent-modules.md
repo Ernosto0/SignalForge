@@ -85,7 +85,7 @@ STAGES = tuple(stage for agent in AGENTS for stage in agent.stages)
 - `signalforge run --run <id> --agent <name>` maps to `run_pipeline(from_stage=agent.first,
   until=agent.last)`, so an agent re-runs as a unit and replaces its own outputs.
 - `signalforge run --resume` and `--from <stage>` work as they do now.
-- `signalforge ledger --run <id> --by agent` sums `StageRun.cost_usd` over each agent's stages.
+- `signalforge ledger [--run <id>] --by agent|stage` sums the ledger (`LLMCall`, re-runs included) per agent or stage; `signalforge evaluate <runs>` gives one clean pass per run (latest `StageRun` per stage) plus live searches.
 
 ### 0.3 Rules every agent follows
 
@@ -1236,7 +1236,7 @@ class FeasibilityJudgment(BaseModel):
 | economic_impact | 20 | **code**: `value_usd_month` midpoint → level (1 + boundaries ≤ midpoint); level 1 without a valid model |
 | frequency | 10 | model on the rubric (daily → rare) |
 | competition_gap | 15 | model, citing gap inferences and the competitor facts they derive from; no targeted gap → max level 2 |
-| willingness_to_pay | 15 | model, citing WTP signals; a floor of 3 if ≥2 **distinct** competitors have a price convertible to USD/month whose fact hasn't failed entailment (price rows are not counted) |
+| willingness_to_pay | 15 | model, citing WTP signals; a floor of 3 if ≥2 **distinct** competitors have a positive price (any currency or period; M7) whose fact hasn't failed entailment (price rows are not counted) |
 | customer_accessibility | 10 | model; channels are uncited context, not claims, so the uncited cap applies (any cited fact, e.g. a competitor segment fact, lifts it); for the hypothesis share it is fact-backed only through a fact a buyer role cites |
 | market_breadth | 10 | **code** while breadth search is deferred: `not_searched` → level 2 with a trace note |
 

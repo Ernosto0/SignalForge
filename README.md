@@ -55,6 +55,7 @@ signalforge search "nakliye sevkiyat Excel'de takip"   # Serper by default (or S
 signalforge fetch https://example.com.tr/yazi          # robots.txt, rate limit, text extraction
 signalforge llm-check                                  # one structured LLM call, logged with cost
 signalforge ledger                                     # recent LLM calls and total spend
+signalforge ledger --run 3 --by agent                  # LLM calls and spend per agent (or --by stage)
 signalforge purge-cache --namespace page               # delete cached pages (search | page | llm)
 signalforge query-gen --plan examples/tr-logistics.plan.yaml --out queries.csv
                                                        # new run from a reviewed plan -> Turkish queries
@@ -68,6 +69,8 @@ signalforge labels 3                                   # label precision by sign
 signalforge run --run 3 --agent evidence_validator     # Gate 1, then verify: 2nd-round search + entailment
 signalforge run --run 3 --agent competitor_research    # competitors, cited facts/prices, gap matrices
 signalforge gaps 3                                     # gap matrices; exits 1 if a cell is uncited (M4 exit)
+signalforge label opportunities 3                     # founder checklist + verdict per scored opportunity (M7)
+signalforge evaluate 30 31 32 --out reports/evaluation.md  # funnel, outcomes, cost per run across markets (M7)
 ```
 
 Search results, pages and LLM responses are cached in Postgres (`cache_entries`). The cache mode

@@ -9,6 +9,9 @@ puts in several clusters stays in the one holding most other signals from the sa
 with more than ``max_signals_per_call`` signals are clustered in parts, grouped by submarket, whose
 clusters are then merged (prompts/cluster_merge.md). With ``merge_pass``, a run that fits one call
 gets the same merge step as a second look, joining clusters of the same business and workflow.
+With ``reassign_noise``, the signals the model put in noise are then offered to the final clusters
+once (prompts/cluster_assign.md, ``assign_batch`` per call): on the M7 accounting run the model left
+254 of 376 signals as noise, many of them plain members of its own clusters.
 
 Each cluster gets one ``inference`` claim, derived from the ``fact`` claims of its signals.
 
@@ -303,6 +306,16 @@ def cluster_signals(
     notes["merged_away"] = (
         sum(len(p.clusters) for p in parts) - len(result.clusters) if merge else 0
     )
+    if cfg.reassign_noise and result.noise and result.clusters:
+        offered = sorted(result.noise)
+        left: set[int] = set()
+        before = notes["reassigned"]
+        for i in range(0, len(offered), cfg.assign_batch):
+            batch = set(offered[i : i + cfg.assign_batch])
+            left |= assign_leftovers(result.clusters, batch, items, context, ask, notes)
+        notes["noise_offered"] = len(offered)
+        notes["noise_reassigned"] = notes["reassigned"] - before
+        result = Clustering(result.clusters, sorted(left), notes)
 
     def big_enough(d: Draft) -> bool:
         if len(d.signal_ids) >= cfg.min_cluster_size:
@@ -396,6 +409,8 @@ def cluster_metrics(
         "overflow_ids": notes["overflow_ids"],
         "reassigned": notes["reassigned"],
         "leftover_noise": notes["leftover_noise"],
+        "noise_offered": notes["noise_offered"],
+        "noise_reassigned": notes["noise_reassigned"],
         "too_small_ids": notes["too_small_ids"],
         "regulatory_singletons": notes["regulatory_singletons"],
         "merge_unlisted": notes["merge_unlisted"],
