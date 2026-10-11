@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "created_at": "2026-10-11T19:55:20+00:00",
+  "commit": "4837e35",
+  "runs": [
+    {
+      "id": 30,
+      "industry": "accounting",
+      "status": "completed",
+      "pack": "tr@0.1.2"
+    }
+  ],
+  "prompts": [
+    "buyers@2",
+    "cluster@3",
+    "cluster_assign@1",
+    "cluster_merge@2",
+    "competitor_facts@2",
+    "competitor_seeds@1",
+    "competitors_loop@1",
+    "entailment@1",
+    "extract@5",
+    "founder_fit@2",
+    "gap_matrix@2",
+    "monetization@1",
+    "query_gen@6",
+    "report@1",
+    "report_summary@2",
+    "score@2",
+    "score@3",
+    "triage@1",
+    "verify_extract@4",
+    "verify_loop@1"
+  ],
+  "rows": {
+    "cache_entries": 1960,
+    "claims": 1176,
+    "competitors": 33,
+    "documents": 283,
+    "excerpts": 1045,
+    "gap_matrices": 10,
+    "independence_groups": 13,
+    "llm_calls": 1794,
+    "opportunities": 13,
+    "problem_clusters": 19,
+    "queries": 370,
+    "research_runs": 1,
+    "score_cards": 13,
+    "search_results": 3029,
+    "signals": 405,
+    "stage_runs": 29,
+    "url_candidates": 1191
+  },
+  "cache": {
+    "llm": 1233,
+    "page": 357,
+    "search": 370
+  },
+  "data": {
+    "file": "data.jsonl.gz",
+    "sha256": "add21a06ab5325366fbb0ad028260e59da7e03ad0361f0f4570d4f76d59b2718"
+  }
+}

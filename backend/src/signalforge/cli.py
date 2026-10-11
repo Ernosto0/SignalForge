@@ -18,7 +18,7 @@ import uvicorn
 import yaml
 from pydantic import ValidationError
 from sqlalchemy import Integer, Row, func, select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from signalforge import __version__
 from signalforge.agents import AGENTS, STAGES
@@ -44,6 +44,7 @@ from signalforge.db.session import get_session_factory
 from signalforge.domain.diagnostics import PainCheck
 from signalforge.domain.plan import load_plan
 from signalforge.evidence.gaps import check_gap_matrices
+from signalforge.fixtures import export_runs, import_fixture
 from signalforge.packs import load_pack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.jobs import JobArgs, default_context, pipeline_options, work, worker_id
@@ -54,6 +55,12 @@ from signalforge.providers.cache import CacheMiss
 from signalforge.providers.llm import LLMError, LLMUnavailable, ModelTier
 from signalforge.providers.search import SearchError
 from signalforge.providers.urls import domain_of
+from signalforge.reporting.benchmark import (
+    load_benchmark,
+    render_benchmark,
+    replay_scenario,
+    run_benchmark,
+)
 from signalforge.reporting.compare import compare_markets, render_comparison, summary
 from signalforge.reporting.evaluation import evaluate_runs, render_evaluation
 from signalforge.reporting.evaluation import summary as evaluation_summary
@@ -1003,3 +1010,89 @@ def labels(run: int = typer.Argument(..., help="Research run id.")) -> None:
         counts = ", ".join(f"{v} {values.count(v)}" for v in ("investigate", "maybe", "no"))
         typer.secho(f"\nopportunities labelled by {labeler} (M7 exit: ≥ 1 investigate)", bold=True)
         typer.echo(f"{len(values)} of {len(scored)} opportunities: {counts}")
+
+
+# --- fixtures (plan §11) -----------------------------------------------------------------------
+
+fixture_app = typer.Typer(
+    help="Freeze runs (outputs + cache entries) for offline evaluation.", no_args_is_help=True
+)
+app.add_typer(fixture_app, name="fixture")
+
+
+@fixture_app.command("export")
+def fixture_export(
+    runs: list[int] = typer.Argument(..., help="Run ids to freeze."),
+    out: Path = typer.Option(..., "--out", help="Fixture directory (data is not for git)."),
+) -> None:
+    """Write the runs' rows and every cache entry they used to a fixture directory."""
+    try:
+        manifest = export_runs(get_session_factory(), runs, out)
+    except ValueError as exc:
+        _fail(str(exc))
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    rows = sum(manifest["rows"].values())
+    cache = ", ".join(f"{k} {v}" for k, v in manifest["cache"].items())
+    typer.echo(f"wrote {out}: {rows} rows (cache: {cache})")
+
+
+@fixture_app.command("import")
+def fixture_import(
+    path: Path = typer.Argument(..., help="Fixture directory."),
+) -> None:
+    """Load a fixture into the database of DATABASE_URL (use an empty, migrated database: rows
+    keep their ids)."""
+    try:
+        counts = import_fixture(get_session_factory(), path)
+    except (ValueError, OSError) as exc:
+        _fail(str(exc))
+    except IntegrityError as exc:
+        _fail(f"rows clash with existing ones; import into an empty database ({exc.orig}).")
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    typer.echo(f"imported {sum(counts.values())} rows from {path}")
+
+
+benchmark_app = typer.Typer(help="Research-quality benchmark (docs/eval/metrics.md).",
+                            no_args_is_help=True)  # fmt: skip
+app.add_typer(benchmark_app, name="benchmark")
+
+
+@benchmark_app.command("run")
+def benchmark_run(
+    manifest: Path = typer.Option(
+        BACKEND_DIR / "evals" / "benchmark" / "v1.yaml", "--manifest", help="Benchmark manifest."
+    ),
+    out: Path = typer.Option(Path("reports/benchmark"), "--out", help="Output directory."),
+    replay: bool = typer.Option(
+        False, "--replay", help="Also re-run each plan in replay mode (adds runs to the database)."
+    ),
+    baseline: Path | None = typer.Option(
+        None, "--baseline", help="An earlier benchmark.json to compare the pooled metrics with."
+    ),
+) -> None:
+    """Quality, cost and latency metrics of the manifest's frozen runs. Import the fixtures into
+    the database of DATABASE_URL first (`signalforge fixture import`)."""
+    defaults = get_defaults()
+    db = get_session_factory()
+    bench = load_benchmark(manifest)
+
+    def replay_one(scenario: Any) -> Any:
+        def make(run_id: int, pack_id: str) -> RunContext:
+            return RunContext.create(
+                cache_mode=CacheMode.REPLAY, pack_id=pack_id, run_id=run_id, db=db
+            )
+
+        typer.echo(f"replaying {scenario.id} (run {scenario.run})")
+        return replay_scenario(db, scenario, STAGES, make, defaults)
+
+    try:
+        result = run_benchmark(db, bench, defaults, replay_one if replay else None)
+    except ValueError as exc:
+        _fail(str(exc))
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    before = json.loads(baseline.read_text(encoding="utf-8")) if baseline else None
+    for path in render_benchmark(result, out, before):
+        typer.echo(f"wrote {path}")

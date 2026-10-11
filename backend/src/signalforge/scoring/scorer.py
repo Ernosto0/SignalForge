@@ -293,9 +293,9 @@ def hypothesis_share(
 
     A factor counts fully when its citations include no fact. ``economic_impact`` counts by the
     unsourced share of its assumption claims (fully without any). ``customer_accessibility``
-    counts as fact-backed only when it cites a fact one of the opportunity's buyer roles cites
-    (``role_fact_ids``): a competitor segment fact shows whom competitors sell to, not that these
-    buyers are reachable."""
+    counts as fact-backed only when it cites a fact one of the opportunity's buyer roles or
+    channels cites (``role_fact_ids``): a competitor segment fact shows whom competitors sell to,
+    not that these buyers are reachable."""
     by_factor: dict[str, float] = {}
     notes: dict[str, str] = {}
     for name, f in factors.items():
@@ -309,7 +309,9 @@ def hypothesis_share(
         elif name == "customer_accessibility":
             share = 0.0 if any(c.id in role_fact_ids for c in facts) else 1.0
             if facts and share:
-                notes[name] = "cites no fact a buyer role cites; other facts don't show reach"
+                notes[name] = (
+                    "cites no fact a buyer role or channel cites; other facts don't show reach"
+                )
         else:
             share = 0.0 if facts else 1.0
         by_factor[name] = round(share, 3)

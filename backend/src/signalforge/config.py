@@ -232,7 +232,17 @@ class CompetitorsDefaults(LoopDefaults):
     matrix_output_tokens: int
 
 
+class BuyerEvidenceDefaults(LoopDefaults):
+    """The buyers stage's evidence loop: pages naming who buys and where buyers gather."""
+
+    source_categories: list[str]  # registry categories offered as `site:` hints
+    max_facts_per_page: int
+    fact_chars: int  # page characters sent to the fact extraction
+    facts_output_tokens: int
+
+
 class BuyersDefaults(BaseModel):
+    evidence: BuyerEvidenceDefaults
     max_opportunities_per_problem: int
     max_claims_per_problem: int  # signal facts in the prompt's claim table
     segment_dup_ratio: float  # rapidfuzz token_sort_ratio at which two segments are duplicates

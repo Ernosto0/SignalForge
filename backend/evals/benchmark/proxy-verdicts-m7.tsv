@@ -1,0 +1,25 @@
+market	run	opportunity	problem	category	attractiveness	founder_fit	real_problem	software_shaped	payer	gap	reachable	feasible	numbers_believable	verdict	note
+logistics	22	5	Freight teams handle documents and follow-ups	interesting	53.75	stretch	y	y	y	n	y	y	y	investigate	11 fit sources, per-shipment BL drafting by well-paid staff; Logitude $70-100/user shows WTP; gap is thin
+logistics	22	6	Warehouse teams update inventory after the fact	interesting	57.5	fit	y	y	n	n	n	y	y	maybe	3 sources; WMS-lite is crowded (Logo, Mikro)
+accounting	30	106	Accounting staff process invoices and documents	interesting	55.0	stretch	y	y	n	n	y	y	n	no	e-Fatura already arrives structured; pre-accounting tools at $10-20/month
+accounting	30	103	Accounting offices lack client reconciliation details	interesting	48.75	fit	y	y	y	n	y	y	n	maybe	real chase-the-client pain, but rests on one inference; Zirve Müşavir ~$17/month sets the price level
+accounting	30	105	Payroll teams prepare payroll from attendance	interesting	42.5	stretch	y	y	n	n	n	y	y	no	PDKS/payroll vendors cover it; monthly cadence
+customs	31	91	Customs brokers prepare declarations	interesting	55.0	stretch	y	y	y	y	y	n	y	investigate	highest value ($230-798/month): per-declaration document checks by high-wage staff; AI extraction from invoices/packing lists is the wedge; BİLGE integration is a stretch
+customs	31	90	Importers spend staff time checking documents (brokers)	interesting	57.5	fit	y	y	y	n	y	y	y	investigate	same work as 91 sold as a document checklist; feasible for a small team
+customs	31	89	Importers spend staff time checking documents (importers)	interesting	57.5	stretch	y	y	n	n	n	y	y	maybe	importers usually outsource this to their broker
+customs	31	87	Exporters struggle with document operations	interesting	53.75	stretch	y	y	n	n	y	n	y	maybe	broad; ERP foreign-trade modules exist
+customs	31	92	Trade teams track orders and payments	interesting	48.75	fit	y	y	n	n	n	y	n	no	ERP territory
+customs	31	93	Exporters prepare reports in spreadsheets	interesting	48.75	fit	n	y	n	n	n	y	n	no	low confidence; reporting is not the pain
+ecommerce	32	117	Businesses struggle to process returns	interesting	60.0	fit	y	y	n	n	y	y	n	maybe	returns are real but marketplaces own the flow; gap is absence of evidence
+ecommerce	32	116	E-commerce teams monitor prices and stock	interesting	56.25	stretch	y	y	n	n	y	y	y	no	crowded (Entegra, Dopigo, Sopyo, Sentos)
+ecommerce	32	114	Sellers cannot trust cross-channel data synchronization	interesting	48.75	stretch	y	y	n	n	y	n	y	no	incumbent integrators; reliability is their problem to fix
+ecommerce	32	113	Marketplace sellers struggle with listings	interesting	48.75	stretch	y	y	n	n	y	n	y	no	same incumbents
+ecommerce	32	115	E-commerce teams handle order invoicing	competitive	48.75	stretch	y	y	n	n	y	n	y	no	competitive by rule; integrators bundle e-invoicing
+construction	33	35	Construction sites reconcile attendance and time records	interesting	53.75	stretch	y	y	y	y	y	y	y	investigate	puantör work recurs daily; PDKS vendors are card-reader hardware without site reconciliation; also found in the M3 proxy read
+construction	33	33	Contractors prepare and verify progress payments	interesting	51.25	stretch	y	y	y	n	y	n	y	investigate	16 fit sources, monthly hakediş by paid engineers; incumbents priced ~$180/month (WTP proven) and aimed at public works
+construction	33	34	Contractors struggle to prepare reliable tender costs	interesting	55.0	stretch	y	y	y	n	y	n	y	maybe	price-book PDF conversion is a sharp wedge; OSKA/Kurumsal Hakediş incumbents
+construction	33	37	Site teams compile recurring project reports	interesting	53.75	stretch	y	y	n	n	y	y	n	maybe	generic reporting
+construction	33	38	Construction teams struggle with quantity takeoffs	interesting	58.75	stretch	y	n	n	n	n	n	n	no	complaints about structural CAD (ideCAD) takeoffs; not a small-team MVP; value range $10-1221 is uninformative
+construction	33	36	Firms track subcontractor documents and registrations	interesting	37.5	fit	y	y	n	n	y	y	n	no	ceiling barely above $50
+insurance	34	96	Claims teams track files and missing documents	interesting	48.75	fit	n	y	n	n	y	y	n	no	evidence is insurers' claims staff (HDI, Starr), not agencies
+insurance	34	95	Agencies struggle with cashflow accounting	interesting	41.25	stretch	y	y	n	n	y	y	n	maybe	insurer reconciliation is real; Hesapcini at 390 TRY (~$8)/month; no valid value model

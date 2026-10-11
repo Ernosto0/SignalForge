@@ -6,8 +6,8 @@ rule trace and cited claims.
 2. **Claim table** per passed opportunity: the problem's inference, its counted signal facts
    (job ads and price signals first, capped), the gap inferences it targets **and the competitor
    facts they derive from** (gap inferences are not facts, so citing them alone would always hit
-   the uncited cap), competitor price and segment facts, buyer-role claims, and the economic
-   model's assumption claims. With ``entail_cited`` every fact in the tables is
+   the uncited cap), competitor price and segment facts, buyer-role claims, cited channel facts,
+   and the economic model's assumption claims. With ``entail_cited`` every fact in the tables is
    entailment-checked first (``entail_pending``, stage ``score``); failed facts leave the table.
    The model sees local numbers 1..n.
 3. **Rubric** (``score`` prompt, analysis tier): the model judges five factors; code caps a factor
@@ -75,8 +75,9 @@ from signalforge.scoring.scorer import (
 
 STAGE = "score"
 # Where a table row comes from (shown to the model as ``about``), besides SIGNAL and PRICE.
-PROBLEM, GAP, GAP_EVIDENCE, SEGMENT, ROLE, ASSUMPTION = (
-    "problem", "gap", "gap_evidence", "competitor_segment", "buyer_role", "assumption",
+PROBLEM, GAP, GAP_EVIDENCE, SEGMENT, ROLE, CHANNEL, ASSUMPTION = (
+    "problem", "gap", "gap_evidence", "competitor_segment", "buyer_role", "buyer_channel",
+    "assumption",
 )  # fmt: skip
 PASSED_ENTAILMENT = ("supported", "partial")
 T = TypeVar("T", bound=BaseModel)
@@ -109,7 +110,7 @@ class Target:
     knockouts: list[dict[str, Any]]
     roles: dict[str, Any]  # role -> {role, basis}
     budget_owner: str  # none | hypothesis | evidence
-    role_fact_ids: set[int]  # facts the buyer roles cite
+    role_fact_ids: set[int]  # facts the buyer roles and channels cite (reach evidence)
     gap_ids: list[int]
     economic_model: dict[str, Any]
     channels: list[dict[str, Any]]
@@ -323,14 +324,14 @@ def load(ctx: RunContext, cfg: ScoreDefaults) -> list[Target]:
                     budget_owner="none" if owner is None else _basis(owner["claim_ids"], claims),
                     role_fact_ids={
                         i
-                        for name in ROLES
-                        if (r := roles.get(name))
+                        for r in [*(roles.get(n) for n in ROLES), *channels(o)]
+                        if r
                         for i in r.get("claim_ids") or []
                         if i in claims and claims[i].kind == "fact"
                     },
                     gap_ids=list(roles.get("gap_claim_ids") or []),
                     economic_model=dict(o.economic_model or {}),
-                    channels=list((o.accessibility or {}).get("channels") or []),
+                    channels=channels(o),
                     market_breadth=dict(o.market_breadth or {}),
                     problem={"name": cluster.name, "description": cluster.description},
                     strength=current_strength(cluster),
@@ -407,9 +408,16 @@ def _table(
             for i in role.get("claim_ids") or []:
                 add(i, ROLE)
             add(role.get("hypothesis_claim_id"), ROLE)
+    for channel in channels(o):
+        for i in channel.get("claim_ids") or []:
+            add(i, CHANNEL)
     for claim_id in ((o.economic_model or {}).get("inputs") or {}).values():
         add(claim_id, ASSUMPTION)
     return rows, floor
+
+
+def channels(o: Opportunity) -> list[dict[str, Any]]:
+    return list((o.accessibility or {}).get("channels") or [])
 
 
 def write(session: Session, opportunity_id: int, card: dict[str, Any]) -> None:

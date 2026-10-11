@@ -1,6 +1,6 @@
 ---
 id: buyers
-version: 2
+version: 3
 ---
 You decide who would buy a software solution to one business problem. The input gives the market,
 the industry, the research request's `target_customer`, the company types and roles the research
@@ -13,7 +13,10 @@ plan names (`actors`), the problem, and a numbered claim table. Each claim has a
 
 `about` says what a claim is: a `signal` from the evidence (with its `signal_type` and the `actor`
 who said it; `labor_spend` signals are job ads), the `problem`, a competitor `gap`, a
-`competitor_segment` (whom an existing product sells to), or a `plan_hypothesis`.
+`competitor_segment` (whom an existing product sells to), a `plan_hypothesis`, or buyer
+evidence read for this problem: a `buyer_evidence` fact (a page states that a named role does,
+chooses, approves or pays for this work or tools for it) or a `channel_evidence` fact (a page
+states that such companies gather in a named association, directory, fair or community).
 
 Propose up to `max_opportunities` opportunities. An opportunity is one customer segment plus one
 solution angle for this problem.
@@ -37,6 +40,9 @@ solution angle for this problem.
      buyer. A job ad's duty list states the user, not the economic beneficiary. Citations are
      checked against the quotes behind each claim; a role whose citations do not state it becomes
      a hypothesis. Citing a `plan_hypothesis` keeps the role a hypothesis.
+   - `buyer_evidence` facts are the main source for `buyer`, `decision_maker` and
+     `budget_owner`: cite one when it names the role in that function for companies like the
+     segment.
    - When no claim states the role, leave `claim_ids` empty and write your reasoning in
      `hypothesis` (one English sentence). A role must have claims, a hypothesis, or both.
    - `economic_beneficiary` is a person or function whose results improve (e.g. "operasyon
@@ -48,12 +54,13 @@ solution angle for this problem.
      outside any business budget). It knocks the opportunity out later, so use it only then, not
      because the evidence is silent.
 4. **Channels.** List 1–4 places where these buyers can be reached: associations, directories,
-   communities, marketplaces, events. Cite claims that name them; a channel you know of without a
-   claim gets an empty `claim_ids`. Name real, specific places (e.g. "UND – Uluslararası
+   communities, marketplaces, events. Prefer places a `channel_evidence` fact names, and cite
+   it; a channel you know of without a claim gets an empty `claim_ids`. Name real, specific places (e.g. "UND – Uluslararası
    Nakliyeciler Derneği"), not generic ones ("LinkedIn", "industry events").
 5. **Breadth.** Never invent statistics (company counts, market sizes, percentages). In
    `breadth_hint`, name the official statistic that would count the segment's companies (e.g.
-   "TÜİK count of road freight enterprises by employee size"), or `null`.
+   "TÜİK count of road freight enterprises by employee size") or the member count a
+   `channel_evidence` fact states, or `null`.
 
 Cite only numbers from the claim table. Citations to numbers that are not in the table are
 removed, and an opportunity left with an unsupported role is dropped.

@@ -1,0 +1,62 @@
+{
+  "format": 1,
+  "created_at": "2026-10-11T19:55:33+00:00",
+  "commit": "4837e35",
+  "runs": [
+    {
+      "id": 33,
+      "industry": "construction",
+      "status": "completed",
+      "pack": "tr@0.1.2"
+    }
+  ],
+  "prompts": [
+    "buyers@2",
+    "cluster@3",
+    "cluster_assign@1",
+    "cluster_merge@2",
+    "competitor_facts@2",
+    "competitor_seeds@1",
+    "competitors_loop@1",
+    "entailment@1",
+    "extract@5",
+    "founder_fit@2",
+    "gap_matrix@2",
+    "monetization@1",
+    "query_gen@6",
+    "report@1",
+    "report_summary@2",
+    "score@3",
+    "triage@1",
+    "verify_extract@4",
+    "verify_loop@1"
+  ],
+  "rows": {
+    "cache_entries": 1544,
+    "claims": 760,
+    "competitors": 35,
+    "documents": 292,
+    "excerpts": 670,
+    "gap_matrices": 8,
+    "independence_groups": 11,
+    "llm_calls": 968,
+    "opportunities": 8,
+    "problem_clusters": 19,
+    "queries": 362,
+    "research_runs": 1,
+    "score_cards": 8,
+    "search_results": 2743,
+    "signals": 150,
+    "stage_runs": 18,
+    "url_candidates": 1102
+  },
+  "cache": {
+    "llm": 881,
+    "page": 294,
+    "search": 369
+  },
+  "data": {
+    "file": "data.jsonl.gz",
+    "sha256": "f4c35d2f8f339b80bc8286b9258b85ef67eaadbc2bbfb574bf95dd5dcdb9a603"
+  }
+}

@@ -2,11 +2,18 @@
 
 Per shortlisted problem (after verify and competitors):
 
+0. **Buyer evidence.** A bounded search/fetch loop (agents/loop.py, ``buyers_loop``) reads pages
+   that name who buys or pays for tools for this work (vendor customer stories, manager job ads,
+   forum threads) and where the segment's companies gather (associations, member directories,
+   fairs). ``buyer_facts`` (fast tier) proposes facts per page; each quote is verified against
+   the page text (evidence/quotes.py) and kept as a fact claim with ``meta.kind`` ``buyer_role``
+   or ``channel``. Collection evidence (complaints, clerks' job ads) names users, almost never
+   buyers or places: M7 had 0 of 43 budget owners and 5 of 90 channels cited.
 1. **Claim table.** The problem's counted signal facts (extract + verify, failed entailment out;
-   job ads first, then first-hand signals, capped), its inference, its gap inferences, its
-   competitors' ``segment`` facts, and the plan's ``buyer_hypotheses``, written once per run as
-   hypothesis claims (``meta.origin = "plan"``) so they can be cited and stay labelled. The model
-   sees local numbers 1..n, never database ids.
+   job ads first, then first-hand signals, capped), its inference, its buyer evidence, its gap
+   inferences, its competitors' ``segment`` facts, and the plan's ``buyer_hypotheses``, written
+   once per run as hypothesis claims (``meta.origin = "plan"``) so they can be cited and stay
+   labelled. The model sees local numbers 1..n, never database ids.
 2. **Analysis.** One analysis-tier call proposes 1–3 opportunities (segment × solution angle),
    each with its buyer roles (user, buyer, decision maker, economic beneficiary, budget owner),
    reach channels and a ``breadth_hint``.
@@ -29,17 +36,38 @@ import json
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from signalforge.agents.loop import LoopPage, LoopTrace, run_loop, store_searches
 from signalforge.config import BuyersDefaults
-from signalforge.db.models import Claim, Competitor, Opportunity, ProblemCluster, Signal
-from signalforge.domain.commercial import BuyerAnalysis, RoleClaim
+from signalforge.db.models import (
+    Claim,
+    Competitor,
+    Document,
+    Excerpt,
+    Opportunity,
+    ProblemCluster,
+    Query,
+    Signal,
+)
+from signalforge.domain.commercial import BuyerAnalysis, BuyerFact, BuyerPage, RoleClaim
 from signalforge.domain.plan import ResearchPlan
-from signalforge.evidence.claims import add_hypothesis, delete_stage_claims, fact_ids_by_excerpt
+from signalforge.evidence.claims import (
+    add_fact,
+    add_hypothesis,
+    delete_stage_claims,
+    fact_ids_by_excerpt,
+)
 from signalforge.evidence.clusters import cluster_signal_ids, verification
+from signalforge.evidence.documents import (
+    loop_page_document,
+    loop_snippet_document,
+    store_document,
+)
 from signalforge.evidence.entailment import (
     ClaimEvidence,
     EntailmentBatch,
@@ -47,6 +75,8 @@ from signalforge.evidence.entailment import (
     failed,
     load_claim_evidence,
 )
+from signalforge.evidence.extraction import write_excerpt
+from signalforge.evidence.quotes import QuoteMatch, verify_quote
 from signalforge.packs import MarketPack
 from signalforge.pipeline.context import RunContext
 from signalforge.pipeline.runner import StageResult, load_run_plan
@@ -63,6 +93,9 @@ PLAN_ORIGIN = "plan"
 SIGNAL, PROBLEM, GAP, SEGMENT, PLAN_HYPOTHESIS = (
     "signal", "problem", "gap", "competitor_segment", "plan_hypothesis",
 )  # fmt: skip
+# Buyer evidence (step 0): fact ``meta.kind`` -> ``about`` in the table.
+EVIDENCE_ABOUT = {"buyer_role": "buyer_evidence", "channel": "channel_evidence"}
+ORIGIN = INTENT = "buyer"  # Document.origin and Query.intent of the evidence loop
 # What citing a fact for a role claims; checked against the facts' quotes (step 4).
 ROLE_CLAIMS = {
     "user": "A {role} does this work: {problem}.",
@@ -120,6 +153,63 @@ def signal_order(signal_type: str, first_hand: bool, signal_id: int) -> tuple[bo
     """Job ads first (they name the role doing the work and whom it reports to), then
     first-hand signals, then the rest."""
     return (signal_type != "labor_spend", not first_hand, signal_id)
+
+
+def evidence_goal(target: Target, plan: ResearchPlan, pack: MarketPack) -> str:
+    goal = {
+        "market": {"country": pack.country, "language": pack.language},
+        "industry": plan.request.industry,
+        "target_customer": plan.request.target_customer,
+        "actors": list(dict.fromkeys(a for s in plan.submarkets for a in s.actors)),
+        "problem": {"name": target.name, "description": target.description},
+        "buyer_hypotheses_to_test": plan.buyer_hypotheses,
+    }
+    return json.dumps(goal, ensure_ascii=False, indent=1)
+
+
+def facts_input(
+    target: Target, plan: ResearchPlan, page: LoopPage, text: str, max_facts: int
+) -> str:
+    head = {
+        "problem": {"name": target.name, "description": target.description},
+        "target_customer": plan.request.target_customer,
+        "max_facts": max_facts,
+    }
+    meta = {"url": page.url, "domain": page.hit.domain, "title": page.hit.title or ""}
+    return (
+        f"# Context\n{json.dumps(head, ensure_ascii=False, indent=1)}\n\n"
+        f"# Page\n{json.dumps(meta, ensure_ascii=False, indent=1)}\n\n"
+        f"# Text\n{text}"
+    )
+
+
+def verify_buyer_facts(
+    page: BuyerPage, text: str, fuzzy_min_ratio: float, max_facts: int, notes: Counter[str]
+) -> list[tuple[BuyerFact, QuoteMatch]]:
+    """Facts whose quote is on the page; one per quote span and kind."""
+    kept: list[tuple[BuyerFact, QuoteMatch]] = []
+    for fact in page.facts[:max_facts]:
+        notes["facts_proposed"] += 1
+        match = verify_quote(fact.quote, text, fuzzy_min_ratio)
+        if match is None:
+            notes["facts_unverified"] += 1
+            continue
+        if any(m.char_start == match.char_start and f.kind == fact.kind for f, m in kept):
+            notes["facts_repeated"] += 1
+            continue
+        notes[f"facts_{fact.kind}"] += 1
+        kept.append((fact, match))
+    return kept
+
+
+@dataclass
+class Evidence:
+    """One problem's buyer-evidence loop: the pages it read and their verified facts."""
+
+    target: Target
+    trace: LoopTrace = field(default_factory=LoopTrace)
+    pages: list[tuple[LoopPage, list[tuple[BuyerFact, QuoteMatch]]]] = field(default_factory=list)
+    notes: Counter[str] = field(default_factory=Counter)
 
 
 def analysis_input(
@@ -328,7 +418,40 @@ def entail_roles(ctx: RunContext, checks: list[RoleCheck], kinds: dict[int, str]
 def reset(session: Session, run_id: int) -> None:
     """Remove everything a previous buyers run wrote (score cards cascade)."""
     session.execute(delete(Opportunity).where(Opportunity.run_id == run_id))
+    session.execute(delete(Excerpt).where(Excerpt.run_id == run_id, Excerpt.stage == STAGE))
+    session.execute(delete(Document).where(Document.run_id == run_id, Document.origin == ORIGIN))
     delete_stage_claims(session, run_id, STAGE)
+    session.execute(delete(Query).where(Query.run_id == run_id, Query.intent == INTENT))
+
+
+def write_evidence(session: Session, run_id: int, ev: Evidence, pack: MarketPack) -> int:
+    """The loop's pages with facts as documents, each verified fact as an excerpt and a fact
+    claim (``meta``: kind, problem_id). Returns the number of facts written."""
+    now = datetime.now(UTC)
+    written = 0
+    for page, facts in ev.pages:
+        if not facts:
+            continue
+        doc = (
+            loop_page_document(page.page, pack)
+            if page.page is not None
+            else loop_snippet_document(page.hit.as_search_hit(), pack, now)
+        )
+        doc, _ = store_document(session, run_id, doc, origin=ORIGIN, problem_id=ev.target.id)
+        for fact, match in facts:
+            excerpt = write_excerpt(
+                session, run_id, doc.id, page.source, match, fact.translation, stage=STAGE
+            )
+            add_fact(
+                session,
+                run_id,
+                fact.statement,
+                [excerpt.id],
+                stage=STAGE,
+                meta={"kind": fact.kind, "problem_id": ev.target.id},
+            )
+            written += 1
+    return written
 
 
 def write_plan_hypotheses(session: Session, run_id: int, plan: ResearchPlan) -> None:
@@ -388,8 +511,9 @@ def counted_signal_facts(
 def claim_tables(
     session: Session, run_id: int, targets: list[Target], cfg: BuyersDefaults
 ) -> dict[int, list[TableRow]]:
-    """Per problem: its inference, counted signal facts (capped), gap inferences, competitor
-    segment facts, then the plan's buyer hypotheses. Facts that failed entailment are left out."""
+    """Per problem: its inference, counted signal facts (capped), buyer evidence, gap
+    inferences, competitor segment facts, then the plan's buyer hypotheses. Facts that failed
+    entailment are left out."""
     claims = {
         c.id: c
         for c in session.scalars(select(Claim).where(Claim.run_id == run_id).order_by(Claim.id))
@@ -421,6 +545,14 @@ def claim_tables(
             row(fact, SIGNAL, signal_type=s.type, actor=s.actor)
             for s, fact in counted[: cfg.max_claims_per_problem]
         ]
+        evidence = [
+            row(c, EVIDENCE_ABOUT[(c.meta or {})["kind"]])
+            for c in claims.values()
+            if c.stage == STAGE
+            and c.kind == "fact"
+            and (c.meta or {}).get("problem_id") == t.id
+            and (c.meta or {}).get("kind") in EVIDENCE_ABOUT
+        ]
         gaps, segments = [], []
         for c in claims.values():
             meta = c.meta or {}
@@ -435,7 +567,7 @@ def claim_tables(
                 and not failed(c.entailment)
             ):
                 segments.append(row(c, SEGMENT))
-        tables[t.id] = table + gaps + segments + plan_rows
+        tables[t.id] = table + evidence + gaps + segments + plan_rows
     return tables
 
 
@@ -481,13 +613,77 @@ class Buyers:
 
     def run(self, ctx: RunContext) -> StageResult:
         cfg = ctx.defaults.buyers
+        ecfg = cfg.evidence
+        fuzzy = ctx.defaults.extract.fuzzy_min_ratio
         plan = load_run_plan(ctx)
         prompt = load_prompt("buyers")
+        loop_prompt, facts_prompt = load_prompt("buyers_loop"), load_prompt("buyer_facts")
 
         with ctx.db.begin() as session:
             reset(session, ctx.run_id)
             write_plan_hypotheses(session, ctx.run_id, plan)
         targets = load_targets(ctx)
+        with ctx.db() as session:
+            known_queries = set(
+                session.scalars(select(Query.text).where(Query.run_id == ctx.run_id)).all()
+            )
+        allowed = [s.domain for s in ctx.pack.sources if s.category in ecfg.source_categories]
+
+        def research(target: Target) -> Evidence:
+            ev = Evidence(target)
+            if ecfg.max_steps <= 0:
+                return ev
+
+            def on_page(page: LoopPage) -> str:
+                text = page.text[: ecfg.fact_chars]
+                try:
+                    data = ctx.llm.parse(
+                        ModelTier.FAST,
+                        facts_prompt,
+                        facts_input(target, plan, page, text, ecfg.max_facts_per_page),
+                        BuyerPage,
+                        stage=self.name,
+                        max_output_tokens=ecfg.facts_output_tokens,
+                    ).output
+                except BudgetExceeded:
+                    raise
+                except LLMError:
+                    ev.notes["facts_call_failed"] += 1
+                    return "could not read facts from this page"
+                facts = verify_buyer_facts(data, text, fuzzy, ecfg.max_facts_per_page, ev.notes)
+                ev.pages.append((page, facts))
+                kinds = Counter(f.kind for f, _ in facts)
+                if not facts:
+                    return "no verified buyer or channel facts"
+                return f"{kinds['buyer_role']} buyer-role facts, {kinds['channel']} channel facts"
+
+            ev.trace = run_loop(
+                ctx,
+                stage=self.name,
+                prompt=loop_prompt,
+                goal=evidence_goal(target, plan, ctx.pack),
+                budget=ecfg,
+                allowed_domains=allowed,
+                known_urls=(),
+                known_queries=known_queries,
+                on_page=on_page,
+            )
+            return ev
+
+        with ThreadPoolExecutor(max_workers=max(ecfg.concurrency, 1)) as pool:
+            evidence = list(pool.map(research, targets))
+        evidence_facts: dict[int, int] = {}
+        with ctx.db.begin() as session:
+            store_searches(
+                session,
+                ctx.run_id,
+                [(ev.target.id, ev.trace) for ev in evidence],
+                intent=INTENT,
+                lang=ctx.pack.language,
+                provider=ctx.search.provider.name,
+            )
+            for ev in evidence:
+                evidence_facts[ev.target.id] = write_evidence(session, ctx.run_id, ev, ctx.pack)
         with ctx.db() as session:
             tables = claim_tables(session, ctx.run_id, targets, cfg)
 
@@ -545,6 +741,7 @@ class Buyers:
                         "id": t.id,
                         "name": t.name,
                         "claims": len(tables[t.id]),
+                        "evidence_facts": evidence_facts[t.id],
                         "proposed": len(answer.opportunities) if answer else 0,
                         "opportunities": len(v.drafts),
                         "reason": reason,
@@ -553,14 +750,20 @@ class Buyers:
                 )
 
         metrics = {**buyer_metrics(validated, per_problem), "role_check": role_check,
-                   "language_retries": notes["language_retries"]}  # fmt: skip
+                   "language_retries": notes["language_retries"],
+                   **evidence_metrics(evidence)}  # fmt: skip
         input_hash = cache_key(
             {
                 "targets": [(t.id, t.claim_id, t.signal_ids) for t in targets],
                 "plan": plan.model_dump(mode="json"),
                 "config": cfg.model_dump(mode="json"),
                 "entailment": ctx.defaults.entailment.model_dump(mode="json"),
-                "prompts": [prompt.ref, load_prompt("entailment").ref],
+                "prompts": [
+                    prompt.ref,
+                    loop_prompt.ref,
+                    facts_prompt.ref,
+                    load_prompt("entailment").ref,
+                ],
             }
         )
         return StageResult(metrics=metrics, input_hash=input_hash)
@@ -591,4 +794,24 @@ def buyer_metrics(
         "gap_citations_dropped": notes["gap_citations_dropped"],
         "llm_failures": sum(p["reason"] == "llm_error" for p in per_problem),
         "per_problem": per_problem,
+    }
+
+
+def evidence_metrics(evidence: list[Evidence]) -> dict[str, Any]:
+    """The evidence loops' totals; ``searches_live`` is what the search provider bills."""
+    notes: Counter[str] = Counter()
+    for ev in evidence:
+        notes.update(ev.notes)
+    return {
+        "searches": sum(len(ev.trace.searches) for ev in evidence),
+        "searches_live": sum(ev.trace.searches_live for ev in evidence),
+        "evidence": {
+            "pages": sum(len(ev.trace.pages) for ev in evidence),
+            "buyer_role_facts": notes["facts_buyer_role"],
+            "channel_facts": notes["facts_channel"],
+            "facts_proposed": notes["facts_proposed"],
+            "facts_unverified": notes["facts_unverified"],
+            "facts_call_failed": notes["facts_call_failed"],
+            "loops": {ev.target.id: ev.trace.summary() for ev in evidence},
+        },
     }

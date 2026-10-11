@@ -1,0 +1,48 @@
+# Research-quality benchmark v1 (docs/eval/metrics.md). Frozen TR B2B scenarios: one recorded
+# full run each, exported with `signalforge fixture export` (data git-ignored, manifests committed).
+# `signalforge benchmark run` reads the imported runs; nothing here calls a provider.
+#
+# Split. No scenario is a clean held-out: all six runs were recorded and tuned on during M7
+# (plan §13), and Claude's proxy review read all of them. `holdout` is held out from now on: don't
+# inspect its outputs while tuning, and report it separately. A true held-out needs new recordings
+# of markets never run (e.g. manufacturing, wholesale export), which cost live spend.
+version: 1
+
+# Rows: market, run, opportunity, verdict (+ founder checklist answers). Model judgments
+# (Claude standing in for the founder, 2026-10-11), never human labels; Gate-2 survivors only.
+proxy_labels:
+  - file: proxy-verdicts-m7.tsv
+    labeler: "proxy:claude"
+    target_type: opportunity
+
+scenarios:
+  - id: tr-logistics
+    industry: logistics
+    fixture: ../fixtures/tr-logistics-r22
+    run: 22
+    split: dev
+  - id: tr-accounting
+    industry: accounting
+    fixture: ../fixtures/tr-accounting-r30
+    run: 30
+    split: dev
+  - id: tr-ecommerce
+    industry: ecommerce
+    fixture: ../fixtures/tr-ecommerce-r32
+    run: 32
+    split: dev
+  - id: tr-insurance
+    industry: insurance
+    fixture: ../fixtures/tr-insurance-r34
+    run: 34
+    split: dev
+  - id: tr-customs-export
+    industry: customs
+    fixture: ../fixtures/tr-customs-r31
+    run: 31
+    split: holdout
+  - id: tr-construction
+    industry: construction
+    fixture: ../fixtures/tr-construction-r33
+    run: 33
+    split: holdout

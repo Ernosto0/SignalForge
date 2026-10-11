@@ -3,7 +3,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from signalforge.providers.cache import CacheStore
+from signalforge.providers.cache import CacheMiss, CacheStore
 
 
 class SearchLocale(BaseModel):
@@ -24,6 +24,11 @@ class SearchHit(BaseModel):
 
 class SearchError(RuntimeError):
     pass
+
+
+class NotRecorded(SearchError):
+    """Replay mode has no recording of a search: only successful answers are cached, so it
+    failed when the run was recorded (or the recording is incomplete). Never retried."""
 
 
 class SearchProvider(Protocol):
@@ -51,13 +56,16 @@ class CachedSearch:
             "locale": locale.model_dump(),
             "n": n,
         }
-        cached = self.cache.get_or_compute(
-            "search",
-            request,
-            lambda: {
-                "hits": [h.model_dump() for h in self.provider.search(query, locale, n)],
-            },
-        )
+        try:
+            cached = self.cache.get_or_compute(
+                "search",
+                request,
+                lambda: {
+                    "hits": [h.model_dump() for h in self.provider.search(query, locale, n)],
+                },
+            )
+        except CacheMiss as exc:
+            raise NotRecorded(f"not recorded (replay): {query!r}") from exc
         hits = [SearchHit.model_validate(h) for h in cached.response["hits"]]
         return SearchResponse(hits=hits, cache_hit=cached.hit)
 
@@ -75,6 +83,8 @@ def search_with_retries(
     for attempt in range(1, retries + 2):
         try:
             return search.search(query, locale, n), attempt
+        except NotRecorded:
+            raise
         except SearchError:
             if attempt > retries:
                 raise

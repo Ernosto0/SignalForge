@@ -1,6 +1,6 @@
 ---
 id: score
-version: 3
+version: 4
 ---
 You judge how attractive one B2B SaaS opportunity is, **if** its claims are true, on an anchored
 rubric. You only set levels and cite claims; code computes the score, caps unsupported levels and
@@ -38,8 +38,9 @@ Rules:
      spent on the work). Competitor facts carry a `competitor` field: "several competitors" in
      the rubric means distinct `competitor` values, and several prices from one competitor
      (plans, snapshots, add-ons) count as one.
-   - `customer_accessibility`: the buyer roles, `buyer_role` claims, competitor `segment` facts
-     and the channels. Channels are named by a model and are not evidence on their own.
+   - `customer_accessibility`: the buyer roles, `buyer_role` claims, `buyer_channel` facts (a
+     page states the buyers gather in that place), competitor `segment` facts and the channels.
+     A channel with `cited: false` is named by a model and is not evidence on its own.
 4. Use only the claims. No outside knowledge of the market, products or prices.
 5. `justification`: English, ≤ 40 words, saying what the cited claims show for this level.
 

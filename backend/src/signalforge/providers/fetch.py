@@ -15,9 +15,11 @@ import trafilatura
 from pydantic import BaseModel
 
 from signalforge.config import FetchDefaults
-from signalforge.providers.cache import CacheStore
+from signalforge.providers.cache import CacheMiss, CacheStore
 from signalforge.providers.urls import canonicalize_url, domain_of
 
+# Error of a page or search that replay mode finds no recording for.
+NOT_RECORDED = "not recorded (replay)"
 _HTML_TYPES = ("text/html", "application/xhtml+xml")
 _HTML_LANG = re.compile(rb"<html[^>]*\slang=[\"']?([a-zA-Z]{2,3})", re.IGNORECASE)
 
@@ -171,7 +173,9 @@ class Fetcher:
 
 
 class CachedFetcher:
-    """Page cache keyed by canonical URL. Transient failures are not cached."""
+    """Page cache keyed by canonical URL. Transient failures are not cached, so in replay mode a
+    page that was never recorded is returned as a ``network_error`` (it failed transiently when
+    the run was recorded, or the recording is incomplete) rather than stopping the stage."""
 
     def __init__(self, fetcher: Fetcher, cache: CacheStore) -> None:
         self.fetcher = fetcher
@@ -179,12 +183,21 @@ class CachedFetcher:
 
     def fetch(self, url: str) -> FetchedPage:
         canonical = canonicalize_url(url)
-        cached = self.cache.get_or_compute(
-            "page",
-            {"canonical_url": canonical},
-            lambda: self.fetcher.fetch(url).model_dump(mode="json", exclude={"cache_hit"}),
-            cacheable=lambda r: not FetchedPage.model_validate(r).transient,
-        )
+        try:
+            cached = self.cache.get_or_compute(
+                "page",
+                {"canonical_url": canonical},
+                lambda: self.fetcher.fetch(url).model_dump(mode="json", exclude={"cache_hit"}),
+                cacheable=lambda r: not FetchedPage.model_validate(r).transient,
+            )
+        except CacheMiss:
+            return FetchedPage(
+                url=url,
+                canonical_url=canonical,
+                status=FetchStatus.NETWORK_ERROR,
+                fetched_at=datetime.now(UTC),
+                error=NOT_RECORDED,
+            )
         return FetchedPage.model_validate({**cached.response, "cache_hit": cached.hit})
 
     def cached(self, url: str) -> FetchedPage | None:

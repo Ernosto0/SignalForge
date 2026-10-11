@@ -259,6 +259,24 @@ competitors:
 # table (signal facts, the problem's inference, gap inferences, competitor segment facts, the
 # plan's buyer hypotheses) or labelled as hypotheses. Market breadth search is not built yet.
 buyers:
+  # Before the analysis, a bounded loop per problem (agents/loop.py) reads pages that name who
+  # buys or pays for tools for this work (vendor customer stories, manager job ads) and where the
+  # segment's firms gather (associations, member directories, fairs). Verified quotes become fact
+  # claims in the analysis's table; without them every budget owner and channel is a hypothesis
+  # (M7: 0 of 43 budget owners and 5 of 90 channels cited).
+  evidence:
+    max_steps: 10
+    max_searches: 6
+    max_fetches: 6
+    max_observation_chars: 20000
+    page_preview_chars: 1200
+    max_rejections_in_row: 2
+    concurrency: 3
+    max_output_tokens: 3000
+    source_categories: [association, jobs, forum, reviews]
+    max_facts_per_page: 6
+    fact_chars: 12000
+    facts_output_tokens: 3000
   max_opportunities_per_problem: 3
   # Signal facts in one problem's claim table (job ads first, then first-hand signals).
   max_claims_per_problem: 60

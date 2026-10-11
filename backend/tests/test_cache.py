@@ -7,8 +7,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from signalforge.config import CacheMode, get_defaults
 from signalforge.db.models import CacheEntry
 from signalforge.providers.cache import CacheMiss, CacheStore
-from signalforge.providers.fetch import CachedFetcher, FetchedPage, FetchStatus
-from signalforge.providers.search import CachedSearch, SearchHit, SearchLocale
+from signalforge.providers.fetch import NOT_RECORDED, CachedFetcher, FetchedPage, FetchStatus
+from signalforge.providers.search import CachedSearch, SearchHit, SearchLocale, search_with_retries
+from signalforge.providers.search.base import NotRecorded
 
 TR = SearchLocale(gl="tr", hl="tr", google_domain="google.com.tr")
 
@@ -108,9 +109,11 @@ def test_cached_search_record_then_replay(db) -> None:
 
     assert result.cache_hit and provider.calls == 1
     assert result.hits[0].title == "e-irsaliye zorunluluğu sonucu"
-    # Locale and n are part of the key.
-    with pytest.raises(CacheMiss):
-        replay.search("e-irsaliye zorunluluğu", TR, 5)
+    # Locale and n are part of the key. A search never recorded failed when the run was
+    # recorded: it fails again, at once, without retries.
+    with pytest.raises(NotRecorded):
+        search_with_retries(replay, "e-irsaliye zorunluluğu", TR, 5, retries=2)
+    assert provider.calls == 1
 
 
 class FakeFetcher:
@@ -149,6 +152,15 @@ def test_cached_fetcher_keys_by_canonical_url_and_skips_transient(
 
     assert inner.calls == calls
     assert second.cache_hit is (calls == 1)
+
+
+def test_replay_returns_an_unrecorded_page_as_a_transient_failure(db) -> None:
+    inner = FakeFetcher(FetchStatus.OK)
+    page = CachedFetcher(inner, _store(db, CacheMode.REPLAY)).fetch("https://a.com.tr/x")  # type: ignore[arg-type]
+
+    assert inner.calls == 0
+    assert page.status is FetchStatus.NETWORK_ERROR and page.transient
+    assert page.error == NOT_RECORDED and not page.cache_hit
 
 
 def test_defaults_ttls_cover_every_namespace() -> None:

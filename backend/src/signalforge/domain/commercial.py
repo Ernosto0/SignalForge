@@ -55,6 +55,22 @@ class BuyerAnalysis(BaseModel):
     opportunities: list[OpportunityDraft]
 
 
+BuyerFactKind = Literal["buyer_role", "channel"]
+
+
+class BuyerFact(BaseModel):
+    kind: BuyerFactKind
+    statement: str = Field(description="English, one sentence: what the quote states")
+    quote: str = Field(description="verbatim from the page text, one or two sentences")
+    translation: str | None = Field(default=None, description="English, if the quote is not")
+
+
+class BuyerPage(BaseModel):
+    """Output of ``buyer_facts``: who buys, and where buyers gather, as one page states it."""
+
+    facts: list[BuyerFact]
+
+
 # --- monetization (agent-modules.md §7) -----------------------------------------------------
 
 Formula = Literal["labor_savings", "error_cost_avoided", "revenue_recovered", "compliance_cost"]

@@ -1,0 +1,56 @@
+# Human-labeling schema v1 (roadmap phase 2). Labels are stored in the `labels` table
+# (target_type, target_id, labeler, value, note) against rows of an imported fixture, whose ids are
+# stable. Labels made by a model use a labeler starting with "proxy:" and are reported apart from
+# human labels; they are never merged.
+#
+# Today only `opportunity.worth_investigating` has a collection command
+# (`signalforge label opportunities`, founder_checklist.yaml) and only proxy answers exist. The
+# rest define what a labeler answers, so `benchmark run` can report the metric once labels exist.
+#
+# Limits of these labels (they are reference judgments, not ground truth):
+# - one labeler: no inter-rater agreement can be measured until a second labeler labels a sample;
+# - the labeler reads the pipeline's own excerpts and report, which anchors the judgment;
+# - recall is bounded by what the pipeline collected: a problem never searched cannot be missed;
+# - "worth investigating" depends on the founder's constraints in the plan.
+version: 1
+
+targets:
+  claim:
+    table: claims (kind = fact)
+    question: Do the cited excerpts, read in the original language, state this claim?
+    values: [supported, partial, not_supported]
+    metric: claim support precision (human) = supported / labelled, by entailment verdict
+    sample: stratified by entailment verdict (supported, partial, unchecked), ≥ 30 per stratum
+  source_pair:
+    table: documents (two documents counted as different independent sources in one cluster)
+    question: Are these two documents independent evidence (not the same text, author or event)?
+    values: [independent, duplicate, unsure]
+    metric: independent-source precision = independent / labelled pairs
+    sample: pairs within shortlisted clusters, snippet-only pairs oversampled (audit R1)
+  cluster:
+    table: problem_clusters
+    question: Is this one real, recurring business problem supported by its quotes?
+    values: [y, n]
+    metric: problem discovery precision = y / labelled, shortlisted vs not
+  reference_problem:
+    table: none (a list per scenario in evals/benchmark/, written before reading the run)
+    question: Which problems should research of this market find?
+    values: free text, matched to clusters by the labeler
+    metric: problem discovery recall = matched reference problems / reference problems
+  buyer:
+    table: opportunities (buyer_roles)
+    question: Can you name the role at the customer who pays, from the cited evidence?
+    values: [y, n]
+  willingness_to_pay:
+    table: opportunities (wtp_signals) + score_cards (willingness_to_pay factor)
+    question: Do the cited prices, job ads or statements show these firms pay for this work?
+    values: [y, partial, n]
+  opportunity:
+    table: opportunities (scored)
+    question: founder_checklist.yaml, then investigate / maybe / no
+    values: [investigate, maybe, "no"]
+    metrics: Precision@3, false-positive rate of strong cards, confidence calibration
+  category:
+    table: score_cards
+    question: Are the category and the confidence justified by the card's cited claims?
+    values: [y, n]

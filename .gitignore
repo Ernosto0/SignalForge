@@ -23,6 +23,8 @@ next-env.d.ts
 # Local data
 cache/
 reports/
+# Fixture data holds scraped third-party text (KVKK): share out of band; manifests are committed.
+**/fixtures/*/data.jsonl.gz
 
 # OS / editors
 .DS_Store

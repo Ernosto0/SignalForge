@@ -29,6 +29,7 @@ RANGE_PERCENT = re.compile(r"[–—-]\s*\d[\d.,]*\s*%")  # the first number of 
 WORD = re.compile(r"[^\W\d_][^\W_]*")
 TOLERANCE = 0.01  # relative difference allowed for a rounded bullet number
 SENTENCE_END = (".", "!", "?", ":")
+MONTH_MAY = re.compile(r"(?<!\w)May(?!\w)")
 # Capitalised words that are not names: pronouns, calendar words, common acronyms.
 _STOP_WORDS = """
 I We You They It He She The This That These Those A An In On At For To Of And Or But If
@@ -135,7 +136,14 @@ def claim_text(c: ClaimView) -> str:
     return "\n".join(parts)
 
 
+def _sentence_start(text: str, i: int) -> bool:
+    before = text[:i].rstrip()
+    return not before or before.endswith(SENTENCE_END)
+
+
 def _hedged(text: str, hedges: list[str]) -> bool:
+    # "May" capitalised inside a sentence is the month, not the hedge "may".
+    text = MONTH_MAY.sub(lambda m: m.group() if _sentence_start(text, m.start()) else "", text)
     folded = tr_casefold(text)
     return any(re.search(rf"(?<!\w){re.escape(tr_casefold(h))}(?!\w)", folded) for h in hedges)
 

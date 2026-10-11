@@ -1,0 +1,66 @@
+{
+  "format": 1,
+  "created_at": "2026-10-11T19:55:16+00:00",
+  "commit": "4837e35",
+  "runs": [
+    {
+      "id": 22,
+      "industry": "logistics",
+      "status": "completed",
+      "pack": "tr@0.1.1"
+    }
+  ],
+  "prompts": [
+    "buyers@1",
+    "buyers@2",
+    "cluster@3",
+    "cluster_merge@2",
+    "competitor_facts@2",
+    "competitor_seeds@1",
+    "competitors_loop@1",
+    "entailment@1",
+    "extract@5",
+    "founder_fit@1",
+    "founder_fit@2",
+    "gap_matrix@2",
+    "monetization@1",
+    "query_gen@6",
+    "report@1",
+    "report_summary@1",
+    "report_summary@2",
+    "score@1",
+    "score@2",
+    "score@3",
+    "triage@1",
+    "verify_extract@4",
+    "verify_loop@1"
+  ],
+  "rows": {
+    "cache_entries": 941,
+    "claims": 352,
+    "competitors": 11,
+    "documents": 155,
+    "excerpts": 298,
+    "gap_matrices": 3,
+    "independence_groups": 6,
+    "llm_calls": 630,
+    "opportunities": 3,
+    "problem_clusters": 22,
+    "queries": 232,
+    "research_runs": 1,
+    "score_cards": 3,
+    "search_results": 1854,
+    "signals": 127,
+    "stage_runs": 26,
+    "url_candidates": 1071
+  },
+  "cache": {
+    "llm": 456,
+    "page": 234,
+    "search": 251
+  },
+  "data": {
+    "file": "data.jsonl.gz",
+    "sha256": "6ebf54537ecf569dfbc0e620fef092e353e092b1a34c7c42548994ec3345431a"
+  }
+}

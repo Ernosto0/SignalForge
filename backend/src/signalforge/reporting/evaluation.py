@@ -26,6 +26,7 @@ SEARCH_STAGES = {
     "search": "searched_live",
     "verify": "searches_live",
     "competitors": "searches_live",
+    "buyers": "searches_live",
 }
 CATEGORIES = ("strong", "interesting", "competitive", "weak", "false_positive")
 VERDICTS = ("investigate", "maybe", "no")

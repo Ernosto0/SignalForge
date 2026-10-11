@@ -49,7 +49,7 @@ class NoSearch:
     name = "none"
 
     def search(self, *_: object) -> list:
-        raise AssertionError("buyers never searches")
+        raise AssertionError("the fake loop finishes before searching")
 
 
 def _role(role: str, ids: list[int] | None = None, hypothesis: str | None = None) -> RoleClaim:
