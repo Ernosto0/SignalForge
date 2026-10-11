@@ -89,6 +89,14 @@ def test_an_uncited_factor_is_capped_at_2_and_flagged() -> None:
     assert judge.factors["willingness_to_pay"].capped is False
 
 
+def test_an_uncited_low_level_is_traced_within_the_cap() -> None:
+    judge = validate_judgments(_rubric(customer_accessibility=(1, [])), TABLE, _code(), CFG)
+    acc = judge.factors["customer_accessibility"]
+    assert (acc.level, acc.capped, acc.claim_ids) == (1, False, [])
+    assert {"rule": "uncited_cap", "factor": "customer_accessibility", "fired": False,
+            "inputs": {"level": 1, "cap": 2}} in judge.events  # fmt: skip
+
+
 def test_competition_gap_is_capped_without_a_gap_claim() -> None:
     judge = validate_judgments(_rubric(competition_gap=(4, [1])), TABLE, _code(False), CFG)
     assert judge.factors["competition_gap"].level == 2

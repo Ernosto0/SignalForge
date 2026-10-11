@@ -276,6 +276,8 @@ def resolve_input(
         return from_ref
     if not 0 <= d.low <= d.high:
         return f"{inp.name}: not a range 0 ≤ low ≤ high ({d.low}, {d.high})"
+    if d.high == 0:  # M7 insurance: a 0 TRY/hour wage made a $0 value and a false knock-out
+        return f"{inp.name}: zero range ({d.low}, {d.high})"
     value, currency, conversion = Interval(d.low, d.high), None, None
     if inp.per:
         currency = (d.currency or d.unit.split("/", 1)[0]).strip().upper()

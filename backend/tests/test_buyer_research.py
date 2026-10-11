@@ -39,6 +39,7 @@ from signalforge.pipeline.stages.buyers import (
     validate_analysis,
 )
 from signalforge.providers.llm import LLMError
+from signalforge.text import looks_turkish
 
 DEFAULTS = get_defaults()
 CFG = DEFAULTS.buyers
@@ -423,3 +424,35 @@ def test_buyers_stage_demotes_a_role_its_facts_do_not_state(db) -> None:
     with db() as session:
         assert any("buyer: still cites facts that failed the role check" in e
                    for e in check_buyer_roles(session, run_id))  # fmt: skip
+
+
+def test_a_turkish_segment_is_asked_again_in_english(db) -> None:
+    run_id = create_run(db, PLAN, PACK, DEFAULTS)
+    _seed(db, run_id)
+    english = _analysis([])
+    asked: list[dict] = []
+
+    def handle(prompt_input: str) -> BuyerAnalysis:
+        payload = json.loads(prompt_input)
+        asked.append(payload)
+        answer = english(prompt_input)
+        if "retry" not in payload:
+            answer.opportunities[0].segment = "Türkiye'deki 5–50 araçlı nakliye firmaları"
+        return answer
+
+    row = run_stage(
+        make_context(db, run_id, NoSearch(), FakeLLM({BuyerAnalysis: handle})), Buyers()
+    )
+    assert row.status == "completed", row.error
+    assert row.metrics["language_retries"] == 1 and "retry" in asked[-1]
+    with db() as session:
+        segments = session.scalars(select(Opportunity.segment)).all()
+    assert "Road freight firms with 5–50 trucks" in segments
+    assert not any(looks_turkish(s) for s in segments)
+
+
+def test_looks_turkish_keeps_english_phrases_with_turkish_names() -> None:
+    assert looks_turkish("Türkiye’de 2–15 çalışanlı SMMM ve muhasebe büroları")
+    assert looks_turkish("İhracat operasyon ekiplerinin faturaları ve belgeleri")
+    assert not looks_turkish("Small accounting practices using Zirve Müşavir")
+    assert not looks_turkish("Turkish SMEs using Paraşüt e-Fatura and Luca")

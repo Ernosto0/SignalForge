@@ -193,6 +193,11 @@ shortlist:
   # A shortlisted problem also needs this many independent sources with a software-fit signal:
   # strong evidence of a problem software can't touch is not an opportunity for us.
   min_software_fit_sources: 2
+  # …and at least this share of its independent sources. M7 (6 TR markets): every cluster that
+  # passed below 50% was a vendor failure (platform support, store outages, payroll-software
+  # bugs, fleet-tracking devices): a competitor's weakness, not a gap a small team fills. 0.6
+  # would also drop quantity takeoffs (50%), a software-shaped problem.
+  min_software_fit_share: 0.5
   max_shortlisted: 10
 
 # --- M4 verification & competitors: verify → competitors (plan §4, §7) -----------------------

@@ -135,6 +135,8 @@ def test_unsourced_inputs_are_labelled_and_bad_inputs_invalidate() -> None:
     checked = validate_model(missing, TABLE, ECON)
     assert checked.errors == ["loaded_hourly_cost: missing"]
     assert checked.notes["extra_assumptions"] == 1
+    zero = validate_model(_labor(low=0, high=0, unit="TRY/hour", currency="TRY"), TABLE, ECON)
+    assert zero.errors == ["loaded_hourly_cost: zero range (0.0, 0.0)"]
 
 
 def test_both_gate_2_rules_fire() -> None:

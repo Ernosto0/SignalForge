@@ -1,7 +1,8 @@
 """shortlist stage (plan §4 Gate 1, §7.5): problem clusters → shortlist, deterministic.
 
-A cluster passes when its evidence strength, its independent source count and its number of
-independent sources with a software-fit signal (evidence/fit.py) all reach the configured bars;
+A cluster passes when its evidence strength, its independent source count, its number of
+independent sources with a software-fit signal (evidence/fit.py) and their share of its sources all
+reach the configured bars;
 the strongest ``max_shortlisted`` passing clusters are shortlisted. Every cluster
 gets a ``gate_trace`` saying which rule decided, so the "insufficient evidence" list in the
 landscape report is explainable.
@@ -40,6 +41,11 @@ def gate1(clusters: list[GateInput], cfg: ShortlistDefaults) -> dict[int, GateDe
     traces: dict[int, list[dict[str, Any]]] = {}
     passing: list[GateInput] = []
     for c in clusters:
+        share = (
+            round(c.software_fit_sources / c.independent_sources, 3)
+            if c.independent_sources
+            else 0.0
+        )
         trace = [
             {
                 "rule": "min_strength",
@@ -58,6 +64,12 @@ def gate1(clusters: list[GateInput], cfg: ShortlistDefaults) -> dict[int, GateDe
                 "value": c.software_fit_sources,
                 "threshold": cfg.min_software_fit_sources,
                 "passed": c.software_fit_sources >= cfg.min_software_fit_sources,
+            },
+            {
+                "rule": "min_software_fit_share",
+                "value": share,
+                "threshold": cfg.min_software_fit_share,
+                "passed": share >= cfg.min_software_fit_share,
             },
         ]
         traces[c.id] = trace

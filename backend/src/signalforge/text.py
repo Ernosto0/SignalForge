@@ -94,6 +94,22 @@ _STOPWORDS = {
 }
 
 
+_TR_LETTERS = set("çğıöşüÇĞİÖŞÜ")
+
+
+def looks_turkish(text: str) -> bool:
+    """For short English fields (a segment, a product angle) that should not be Turkish: more
+    Turkish than English stopwords, or at least 40% of words with Turkish-only letters. A Turkish
+    product name inside an English phrase ("Turkish SMEs using Paraşüt") stays English."""
+    words = _WORD.findall(tr_casefold(text))
+    if not words:
+        return False
+    tr, en = (sum(w in _STOPWORDS[lang] for w in words) for lang in ("tr", "en"))
+    # Letters on the raw words: the casefold maps ı to i.
+    marked = sum(bool(_TR_LETTERS & set(w)) for w in _WORD.findall(text))
+    return tr > en or marked / len(words) >= 0.4
+
+
 def guess_language(text: str) -> str | None:
     """``tr`` / ``en`` by stopword share, or ``None`` when neither is clearly present."""
     words = _WORD.findall(tr_casefold(text[:20000]))

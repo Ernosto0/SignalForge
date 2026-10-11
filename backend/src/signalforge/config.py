@@ -176,6 +176,7 @@ class ShortlistDefaults(BaseModel):
     min_independent_sources: int
     # Independent sources with at least one software-fit signal (0 turns the rule off).
     min_software_fit_sources: int
+    min_software_fit_share: float  # software-fit sources / independent sources
     max_shortlisted: int
 
 

@@ -48,11 +48,12 @@ def test_gate1_explains_every_decision() -> None:
     decisions = gate1(
         [
             GateInput(1, 6.0, 5, 3),
-            GateInput(2, 3.0, 9, 3),  # weak
+            GateInput(2, 3.0, 9, 5),  # weak
             GateInput(3, 7.0, 2, 2),  # too few sources
             GateInput(4, 5.0, 4, 2),
             GateInput(5, 4.0, 3, 3),  # passes, but third strongest
             GateInput(6, 8.0, 9, 1),  # strong, but software can't touch most of it
+            GateInput(8, 8.0, 5, 2),  # enough fit sources, but under half of its sources
         ],
         GATE,
     )
@@ -60,14 +61,16 @@ def test_gate1_explains_every_decision() -> None:
     failed = {i: [t["rule"] for t in d.trace if not t["passed"]] for i, d in decisions.items()}
     assert failed == {
         1: [], 2: ["min_strength"], 3: ["min_independent_sources"], 4: [],
-        5: ["max_shortlisted"], 6: ["min_software_fit_sources"],
+        5: ["max_shortlisted"], 6: ["min_software_fit_sources", "min_software_fit_share"],
+        8: ["min_software_fit_share"],
     }  # fmt: skip
+    assert decisions[8].trace[3]["value"] == 0.4
     assert decisions[5].trace[-1]["value"] == 3  # its position among passing clusters
 
 
 def test_gate1_ties_break_by_sources_then_id() -> None:
     decisions = gate1(
-        [GateInput(7, 5.0, 3, 2), GateInput(3, 5.0, 3, 2), GateInput(9, 5.0, 8, 2)],
+        [GateInput(7, 5.0, 3, 2), GateInput(3, 5.0, 3, 2), GateInput(9, 5.0, 8, 4)],
         GATE,
     )
     assert {i for i, d in decisions.items() if d.shortlisted} == {9, 3}
@@ -162,6 +165,7 @@ def test_shortlist_stage_and_landscape_report(db, tmp_path) -> None:
     assert clusters[ids["strong"]].shortlisted and not clusters[ids["weak"]].shortlisted
     assert [t["rule"] for t in clusters[ids["weak"]].gate_trace] == [
         "min_strength", "min_independent_sources", "min_software_fit_sources",
+        "min_software_fit_share",
     ]  # fmt: skip
     # Three software-fit signals, but documents 0 and 1 share an author: two independent sources.
     (fit_rule,) = [t for t in clusters[ids["strong"]].gate_trace

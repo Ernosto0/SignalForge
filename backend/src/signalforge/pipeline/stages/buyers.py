@@ -54,6 +54,7 @@ from signalforge.prompts import load_prompt
 from signalforge.providers.cache import cache_key
 from signalforge.providers.llm import BudgetExceeded, LLMError, ModelTier
 from signalforge.queries import Deduper
+from signalforge.text import looks_turkish
 
 STAGE = "buyers"
 ROLES = ("user", "buyer", "decision_maker", "economic_beneficiary", "budget_owner")
@@ -176,6 +177,12 @@ def validate_role(
     kinds = {row.kind for n, row in table.items() if n in rc.claim_ids}
     role = {"role": rc.role.strip(), "claim_ids": ids, "hypothesis": hypothesis}
     return role, _basis(kinds)
+
+
+def turkish_fields(analysis: BuyerAnalysis) -> bool:
+    return any(
+        looks_turkish(o.segment) or looks_turkish(o.solution_angle) for o in analysis.opportunities
+    )
 
 
 def validate_analysis(
@@ -484,21 +491,33 @@ class Buyers:
         with ctx.db() as session:
             tables = claim_tables(session, ctx.run_id, targets, cfg)
 
-        def analyse(target: Target) -> BuyerAnalysis | None:
+        def ask(text: str) -> BuyerAnalysis | None:
             try:
                 return ctx.llm.parse(
-                    ModelTier.ANALYSIS,
-                    prompt,
-                    analysis_input(target, tables[target.id], plan, ctx.pack, cfg),
-                    BuyerAnalysis,
-                    stage=self.name,
+                    ModelTier.ANALYSIS, prompt, text, BuyerAnalysis, stage=self.name,
                     max_output_tokens=cfg.max_output_tokens,
-                ).output
+                ).output  # fmt: skip
             except BudgetExceeded:
                 raise
             except LLMError:
                 return None
 
+        def analyse(target: Target) -> BuyerAnalysis | None:
+            text = analysis_input(target, tables[target.id], plan, ctx.pack, cfg)
+            answer = ask(text)
+            if answer is None or not turkish_fields(answer):
+                return answer
+            # Segments and angles are report headings: English (M7: 3 of 46 came back Turkish).
+            notes["language_retries"] += 1
+            note = (
+                "Your previous answer had Turkish text: write every segment and angle in English."
+            )
+            retry = ask(
+                json.dumps(json.loads(text) | {"retry": note}, ensure_ascii=False, indent=1)
+            )
+            return retry if retry is not None and not turkish_fields(retry) else answer
+
+        notes: Counter[str] = Counter()
         with ThreadPoolExecutor(max_workers=max(cfg.concurrency, 1)) as pool:
             answers = dict(zip([t.id for t in targets], pool.map(analyse, targets), strict=True))
 
@@ -533,7 +552,8 @@ class Buyers:
                     }
                 )
 
-        metrics = {**buyer_metrics(validated, per_problem), "role_check": role_check}
+        metrics = {**buyer_metrics(validated, per_problem), "role_check": role_check,
+                   "language_retries": notes["language_retries"]}  # fmt: skip
         input_hash = cache_key(
             {
                 "targets": [(t.id, t.claim_id, t.signal_ids) for t in targets],

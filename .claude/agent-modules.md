@@ -508,6 +508,10 @@ class ClusterMerge(BaseModel):
      the first one.
    - Missing ids: one repair call (`prompts/cluster_assign.md`, fast tier) assigns them to an
      existing key or to `unassigned`. If any are still missing, put them in `unassigned`.
+   - Noise (`reassign_noise`, M7): after the merge, the signals the model itself put in noise are
+     offered once to the final clusters with the same prompt, `assign_batch` per call (null
+     allowed). On the M7 accounting run the model left 254 of 376 signals as noise; this pass
+     placed 105.
 4. If there are more than `max_clusters` clusters, merge the smallest ones into `unassigned` by
    signal count until the cap holds, and record this in the metrics. (Model-led merging is a later
    option, once we can see how often this happens.)
@@ -590,10 +594,12 @@ passed}`), not as the `status` / `gate` columns first planned. A shortlist re-ru
 3. **Software-fit sources:** the independent sources with at least one software-fit signal
    (`evidence/fit.software_fit`), counted as distinct independence units after duplicate,
    same-author and same-quote collapse.
-4. **Gate 1:** shortlisted when all three hold:
+4. **Gate 1:** shortlisted when all four hold:
    - `evidence_strength ≥ min_strength`,
    - `n_independent ≥ min_independent_sources`,
-   - `software_fit_sources ≥ min_software_fit_sources` (added in 77f5b72; 0 turns it off).
+   - `software_fit_sources ≥ min_software_fit_sources` (added in 77f5b72; 0 turns it off),
+   - `software_fit_sources / n_independent ≥ min_software_fit_share` (M7: every cluster passing
+     below 50% was a vendor failure such as platform support or outages; 0 turns it off).
 
    Strong evidence of a problem that software can't touch is not an opportunity. This rule appears
    in `gate_trace` and in the landscape report. Among the clusters that pass, keep the top `max_shortlisted`
@@ -606,11 +612,12 @@ shortlist:
   min_strength: 4.0              # provisional; calibrate on the first labelled runs
   min_independent_sources: 3
   min_software_fit_sources: 2
+  min_software_fit_share: 0.5
   max_shortlisted: 10
 ```
 
 **Metrics:** clusters in, shortlisted, insufficient by rule (`failed_by_rule`: `min_strength` /
-`min_independent_sources` / `min_software_fit_sources` / `max_shortlisted`),
+`min_independent_sources` / `min_software_fit_sources` / `min_software_fit_share` / `max_shortlisted`),
 strength distribution, duplicate collapse from author grouping.
 
 ### 4.2 `verify` — bounded loop + entailment
@@ -1269,12 +1276,14 @@ class FeasibilityJudgment(BaseModel):
    - the maximum judgment spread (none with a single judge, which therefore can't be High).
    - High needs all three; Low if any one fails its floor.
 6. **Founder fit** (plan §8.4):
-   - Feasibility call → `FeasibilityJudgment`.
+   - `feasibility_judges` feasibility calls (default 3, M7) → `FeasibilityJudgment` each; every
+     sample gets a verdict from the rules below and the card takes the median (fit < stretch <
+     not_fit, the worse one on an even split), with all samples in the trace.
    - Then rules: `not_fit` if there is any hard barrier backed by a fact claim (e.g. GİB özel
      entegratör licence), or if the price ceiling high is below the founder minimum.
    - `stretch` if mvp is `stretch` or `no`, or the sales motion is in `stretch_sales_motions`
      (`FounderProfile.team` is free text, so V0 assumes a small team: field sales, enterprise),
-     or the feasibility call failed. The trace records `mvp_feasible` and the whole answer.
+     or every feasibility call failed. The trace records `mvp_feasible` and the whole answer.
    - Otherwise `fit`.
 7. **Category** (`categories.py`, plan §8.5, evaluated in this order, first match wins; every rule
    checked is appended to `rule_trace` with its inputs):
@@ -1340,7 +1349,7 @@ failed calls (rubric / extra judges / feasibility); entailment counts and unchec
 - The experiment picks the max importance × uncertainty claim.
 - Also: the no-gap cap; the WTP floor counts competitors, not price rows; confidence bands (one
   judge can't be High); a re-run is idempotent; a failed rubric call leaves no card (the exit
-  check reports it) and a failed feasibility call gives `stretch`; `check_score_cards` flags a
+  check reports it) and no feasibility answer at all gives `stretch`; `check_score_cards` flags a
   tampered card.
 
 **Done when.** This is the M5 exit: each ScoreCard is fully explainable from its rule trace and
@@ -1561,7 +1570,7 @@ is merged. Each agent's "Done when" line above repeats the exit it is responsibl
 | **M4** Verification & competitors | [evidence_validator](#4-agentsevidence_validatorpy--evidence-validator) part 2: `verify` + entailment · [competitor_research](#5-agentscompetitor_researchpy--competitor-research): `competitors` | `agents/loop.py`, `evidence/entailment.py`, `evidence/documents.py`, `evidence/clusters.py`, `evidence/gaps.py`, `queries.py`, `signalforge gaps` | `claims.entailment/meta`, `documents.origin/problem_id`, `excerpts.stage`, `problem_clusters.verification`, `gap_matrices.run_id` | competitor_research (gap-matrix cells) |
 | **M5** Commercial & scoring | [buyer_research](#6-agentsbuyer_researchpy--buyer-research): `buyers` · [monetization](#7-agentsmonetizationpy--monetization): `monetization` (Gate 2) · [opportunity_scorer](#8-agentsopportunity_scorerpy--opportunity-scorer): `score` | `scoring/economics.py`, `rubric.yaml`, `scorer.py`, `categories.py`, `experiments.py`/`.yaml` | `opportunities.*` columns, `score_cards.experiment`; pack `economics.yaml` (`usd_try`, wage references) | opportunity_scorer (explainable ScoreCards) |
 | **M6** Final report ✅ | [report_writer](#9-agentsreport_writerpy--report-writer): `report` | `reporting/schema.py`, `sections.py`, `tables.py`, `validator.py`, `deterministic.py`, `render.py` (`make_env`, shared with the landscape report), templates; `evidence/reports.py` | none | report_writer (citation validator, `check_report`) |
-| **M7** Multi-market evaluation | no new agents: tune each agent's config block and prompts on fixtures | `evals/` (fixtures, labelling, metrics reports), `signalforge ledger --by agent` | more market packs / industries as needed | all agents |
+| **M7** Multi-market evaluation ✅ (proxy; human read pending) | no new agents: tune each agent's config block and prompts on fixtures | `evals/founder_checklist.yaml`, `signalforge label opportunities`, `signalforge evaluate` (`reporting/evaluation.py`), `signalforge ledger --by agent` (fixtures = the record/replay cache) | more market packs / industries as needed | all agents |
 | **M8** API & UI | no new agents: endpoints and UI show progress per agent (StageRuns grouped by `AGENTS`) | `api/routes`, worker, frontend | job table | — |
 
 **Order within each milestone.** Each step ends with its tests green and the agent's metrics

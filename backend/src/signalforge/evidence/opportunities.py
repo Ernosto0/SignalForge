@@ -189,8 +189,8 @@ def _card_problems(card: ScoreCard, claims: dict[int, Claim], cfg: ScoreDefaults
         if bad:
             errors.append(f"{name}: cites {bad}, missing from the run or failed entailment")
         valid = [i for i in ids if i not in bad]
-        if not valid and not traced(CODE_RULES, name):
-            errors.append(f"{name}: neither a cited claim nor a code-rule trace entry")
+        if not valid and not traced(CODE_RULES | CAP_RULES, name):
+            errors.append(f"{name}: neither a cited claim nor a code-rule or cap trace entry")
         if f.get("capped") and not traced(CAP_RULES, name):
             errors.append(f"{name}: capped without a cap entry in the trace")
         if (

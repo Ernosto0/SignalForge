@@ -594,6 +594,38 @@ e-commerce, …), label with the founder checklist, tune thresholds/weights/prom
 agent's metrics come from `StageRun.metrics`; `signalforge ledger --by agent` gives cost per agent.
 *Exit:* founder verdict "something I would investigate" for ≥1 opportunity in ≥3 markets; cost per run
 known.
+*Progress 2026-10-11:* tooling: `signalforge ledger --by agent|stage`, `signalforge evaluate <runs>`
+(`reporting/evaluation.py`: funnel, categories, verdicts, cost per run with live searches priced
+by `search.usd_per_query`; verify/competitors metrics now count `searches_live`),
+`signalforge label opportunities <run>` with the founder checklist in
+`evals/founder_checklist.yaml` (verdict investigate / maybe / no stored as a `Label`, answers in
+its note). Full runs on 5 new TR markets (`examples/m7/*.plan.yaml`, 3 submarkets each): accounting
+30, customs/export 31, e-commerce 32, construction 33, insurance 34, plus logistics 22. Cost of a
+fresh run: **$0.56–0.98, median $0.84** (LLM $0.28–0.62 + 260–350 Serper searches), 22–51 min;
+competitor research is 40–47% of LLM spend. All M7 LLM spend including re-runs: $3.02. Tuning,
+each from a run: `cluster.reassign_noise` (accounting left 68% of signals as noise, many of them
+members of its own clusters → 40%); Gate 1 `min_software_fit_share: 0.5` (M3 item: every cluster
+passing below 50% was a vendor failure); `score` prompt v3 (a missing cadence gave `frequency` 1;
+per-unit work is now 3); founder fit = median of `feasibility_judges: 3` (M5 item a); WTP floor
+counts any positive price (M5 item b); monetization rejects an all-zero input range (a 0 TRY/hour
+wage made a false knock-out); buyers re-asks once when a segment or angle is Turkish
+(`text.looks_turkish`); the experiment section adds channels instead of restating (M6 item b);
+`check_score_cards` accepts an `uncited_cap` trace (now also written when it doesn't fire) for an
+uncited low level. Every earlier exit check is empty on all 6 runs. Proxy founder review
+(`reports/m7-evaluation-2026-10-11/`, Claude, not stored as labels): of 25 Gate-2 survivors,
+5 `investigate` in 3 markets: customs (declaration prep and document checks for brokers, $230–798
+/month value), construction (site attendance reconciliation; hakediş prep), logistics
+(bill-of-lading drafts for forwarders). 9 `maybe`, 11 `no`. Insurance and e-commerce: nothing to
+investigate. **M7 exit holds on the proxy read; a human founder read of those five sections
+(`signalforge label opportunities 22|31|33`) is still needed.** Findings: Gate 2 knocks out 18 of
+43 opportunities (TR SMB tools cost $8–20/month and wages are low, so labor-saving tools for micro
+firms rarely clear the $50 minimum; survivors are where well-paid staff do the work); the top score
+is 55–60 in every market, so `strong` (75) is out of reach while `market_breadth` is fixed at 2 and
+`customer_accessibility` is 2 everywhere; most evidence is job ads with `partial` entailment.
+*Open after M7:* (a) market-breadth search and cited channels, or leave unsearched breadth out of
+attractiveness; (b) gap inferences read as market facts ("none of the 4 reviewed products covers
+X"): word them as "not found in the pages reviewed"; (c) M6 items a and c and M5 item d unchanged;
+(d) `evaluate`'s clean pass undercounts stages re-run from the cache (use a fresh run for cost).
 
 **M8 — API & UI features.** Research endpoints over the same runner, Postgres job table worker,
 research form, progress (from StageRuns), opportunity cards, detail page, source explorer.
@@ -615,7 +647,7 @@ platform adapters → V2 iterative autonomous research + embeddings → V3 conti
 | LLM provider | OpenAI; Jev to be evaluated per stage after V0 works |
 | LLM models | `gpt-6-luna` for all tiers during development; `gpt-6.1-sol` / `gpt-6-astra` opt-in for quality evaluation (§10) |
 | Report language | English, with original Turkish quotes + translations |
-| Per-run budget | $10 hard cap (estimate $3–8/run; measure in M7) |
+| Per-run budget | $10 hard cap. Measured in M7 (2026-10-11, luna on every tier): $0.56–0.98 per full run, median $0.84, incl. ≈300 Serper searches |
 | Frontend stack | Next.js (App Router, TS, Tailwind) — scaffolded; `/api/*` proxied to FastAPI |
 | Project name / license | SignalForge (temporary) / Apache-2.0 |
 | Commercial analysis | **Decided 2026-10-10:** two stages, `buyers` + `monetization`, as in [agent-modules.md §6–7](agent-modules.md#6-agentsbuyer_researchpy--buyer-research). The narrow hand-off (cited buyer roles → economics) keeps each output checkable, and monetization's numbers come from code, not the model. Merge back into one stage if M5 evaluation shows errors compounding across the hand-off. §4, §6 and §12 updated. |

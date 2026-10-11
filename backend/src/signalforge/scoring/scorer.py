@@ -220,10 +220,15 @@ def validate_judgments(
 
 
 def _cap(judge: Judge, factor: str, score: FactorScore, rule: str, cap: int) -> None:
+    """Cap ``score`` and trace it. A level already within the cap is traced too (``fired``
+    false): it is what explains a model factor that cites nothing (M7, construction run 33)."""
     if score.level > cap:
         judge.events.append({"rule": rule, "factor": factor, "fired": True,
                              "inputs": {"from": score.level, "to": cap}})  # fmt: skip
         score.level, score.capped = cap, True
+    else:
+        judge.events.append({"rule": rule, "factor": factor, "fired": False,
+                             "inputs": {"level": score.level, "cap": cap}})  # fmt: skip
 
 
 # --- merging judges -------------------------------------------------------------------------
