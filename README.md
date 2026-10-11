@@ -266,6 +266,40 @@ Every LLM call is written to a ledger (`signalforge ledger --by agent`). Stronge
 enabled per tier in `.env` (`LLM_MODEL_ANALYSIS`, `LLM_MODEL_SYNTHESIS`) for higher-quality runs,
 at 20–100× the price.
 
+## Benchmark
+
+Six full runs on Turkish markets are frozen as offline fixtures and scored by
+`signalforge benchmark run`, with no search, page or LLM calls. `dev` is logistics, accounting,
+e-commerce and insurance; `holdout` is customs and construction. Each metric says who measured it:
+code, the pipeline's own model, or a proxy model standing in for a founder.
+
+Baseline of 2026-10-11:
+
+| Metric | Dev | Holdout | Measured by |
+|---|---:|---:|---|
+| Stored quotes that match the fetched page verbatim | 100% (2,403) | 100% (996) | code |
+| Proposed quotes that pass verification | 99.5% (829) | 99.2% (266) | code |
+| Stage failures · exit-check violations | 0 · 0 | 0 · 0 | code |
+| Sourced economic assumptions with a URL and a date | 100% (25) | 100% (13) | code |
+| Competitor prices with a date and a cited claim | 100% (231) | 100% (59) | code |
+| Cost per opportunity that passes Gate 2 (median) | $0.14 | $0.11 | code |
+| Facts checked for entailment | 34% (2,622) | 46% (1,107) | model |
+| Checked facts fully supported by their quotes | 60% (885) | 47% (507) | model |
+| Precision@3: top-3 cards worth investigating | 10% (10) | 50% (6) | proxy (Claude) |
+
+What this proves, and what it doesn't:
+
+- **Proven by code:** quotes aren't invented, every cited price and sourced assumption is dated,
+  and all six runs finish with every structural check passing. 320 backend tests pass.
+- **Not proven yet:** that the top-ranked ideas are worth building. Precision@3 comes from model
+  labels, not human founders, and only one human label exists. About half of the checked facts are
+  only `partial`ly supported, no run has produced a `strong` card, and all six runs were used for
+  tuning, so `holdout` isn't a clean held-out set.
+
+Metric definitions and how to reproduce: [`docs/eval/metrics.md`](docs/eval/metrics.md). Fixture
+manifests are in `backend/evals/fixtures/`. The fixture data holds scraped third-party text, so it
+isn't committed.
+
 ---
 
 ## Command line
