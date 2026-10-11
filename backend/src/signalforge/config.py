@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, SecretStr, model_validator
+from pydantic import BaseModel, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
@@ -331,12 +331,18 @@ class ReportDefaults(BaseModel):
     min_full_reports: int  # fewer only if fewer qualify (never padded)
     max_regenerations: int  # per section, after the first attempt
     hedges: list[str]  # a bullet citing a hypothesis or unsourced assumption needs one
-    out_dir: Path  # reports are written to <out_dir>/run-<id>/
+    out_dir: Path  # reports are written to <out_dir>/run-<id>/; relative = under backend/
     max_output_tokens: int
     max_claims_per_section: int  # rows in one section's claim table
     max_bullets_per_section: int
     excerpt_max_chars: int  # plan §2 row 17: excerpts only, never page text
     concurrency: int
+
+    @field_validator("out_dir")
+    @classmethod
+    def _absolute(cls, value: Path) -> Path:
+        # Relative to backend/, not the cwd: the report stage, the API and the CLI must agree.
+        return value if value.is_absolute() else BACKEND_DIR / value
 
     @model_validator(mode="after")
     def _check(self) -> "ReportDefaults":
@@ -345,6 +351,12 @@ class ReportDefaults(BaseModel):
         if min(self.full_reports, self.max_claims_per_section, self.max_bullets_per_section) < 1:
             raise ValueError("report limits must be at least 1")
         return self
+
+
+class JobsDefaults(BaseModel):
+    poll_s: float  # worker idle wait between queue checks
+    heartbeat_s: float  # a running job's heartbeat interval
+    stale_after_s: float  # a running job without a heartbeat this long is failed ("worker lost")
 
 
 class Defaults(BaseModel):
@@ -371,6 +383,7 @@ class Defaults(BaseModel):
     monetization: MonetizationDefaults
     score: ScoreDefaults
     report: ReportDefaults
+    jobs: JobsDefaults
 
 
 @lru_cache

@@ -2,6 +2,7 @@ import csv
 import getpass
 import json
 import random
+import signal
 import sys
 from collections import defaultdict
 from collections.abc import Callable, Iterator, Sequence
@@ -20,7 +21,7 @@ from sqlalchemy import Integer, Row, func, select
 from sqlalchemy.exc import OperationalError
 
 from signalforge import __version__
-from signalforge.agents import AGENTS, STAGES, get_agent
+from signalforge.agents import AGENTS, STAGES
 from signalforge.config import BACKEND_DIR, CacheMode, get_defaults
 from signalforge.db.models import (
     Competitor,
@@ -45,6 +46,7 @@ from signalforge.domain.plan import load_plan
 from signalforge.evidence.gaps import check_gap_matrices
 from signalforge.packs import load_pack
 from signalforge.pipeline.context import RunContext
+from signalforge.pipeline.jobs import JobArgs, default_context, pipeline_options, work, worker_id
 from signalforge.pipeline.runner import create_run, latest_stage_runs, run_pipeline, run_stage
 from signalforge.pipeline.stages.query_gen import QueryGen
 from signalforge.prompts import load_prompt
@@ -56,6 +58,7 @@ from signalforge.reporting.compare import compare_markets, render_comparison, su
 from signalforge.reporting.evaluation import evaluate_runs, render_evaluation
 from signalforge.reporting.evaluation import summary as evaluation_summary
 from signalforge.reporting.landscape import build_landscape, render_landscape
+from signalforge.reporting.render import report_dir
 
 # Turkish text must print on Windows consoles and through pipes (default there is cp1252).
 for _stream in (sys.stdout, sys.stderr):
@@ -466,24 +469,54 @@ def run_pipeline_cmd(
 ) -> None:
     """Run the research pipeline: query_gen → search → triage → fetch → dedupe → extract →
     cluster → shortlist → verify → competitors → buyers → monetization."""
-    if agent is not None:
-        if from_stage or until or resume:
-            _fail("--agent cannot be combined with --from, --until or --resume")
-        try:
-            chosen = get_agent(agent)
-        except ValueError as exc:
-            _fail(str(exc))
-        from_stage, until = chosen.first, chosen.last
+    try:
+        options = pipeline_options(
+            JobArgs(resume=resume, from_stage=from_stage, until=until, agent=agent)
+        )
+    except ValueError as exc:
+        _fail(str(exc))
     run, pack_id = _resolve_run(plan_file, run)
     typer.echo(f"run #{run}")
     with _run_context(ctx, pack_id, run) as rc:
         try:
-            run_pipeline(rc, STAGES, resume=resume, from_stage=from_stage, until=until)
+            run_pipeline(rc, STAGES, **options)
         except ValueError as exc:
             _fail(str(exc))
         finally:
             for row in latest_stage_runs(rc.db, run).values():
                 typer.echo(_stage_line(row))
+
+
+@app.command()
+def worker(
+    ctx: typer.Context,
+    once: bool = typer.Option(False, "--once", help="Run at most one queued job, then exit."),
+    poll_s: float | None = typer.Option(
+        None, "--poll-s", help="Seconds between queue checks when idle (default: jobs.poll_s)."
+    ),
+) -> None:
+    """Run queued pipeline jobs (from the API) until stopped with Ctrl+C."""
+    jobs = get_defaults().jobs
+    # SIGTERM (e.g. a process manager) stops the worker like Ctrl+C: the current job is failed
+    # ("interrupted") and its run left resumable.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    typer.echo(f"worker {worker_id()} polling every {poll_s or jobs.poll_s}s")
+    try:
+        done = work(
+            get_session_factory(),
+            poll_s=poll_s or jobs.poll_s,
+            heartbeat_s=jobs.heartbeat_s,
+            stale_after_s=jobs.stale_after_s,
+            once=once,
+            make_context=default_context(ctx.obj["cache_mode"]),
+            log=typer.echo,
+        )
+    except KeyboardInterrupt:
+        typer.echo("worker stopped")
+        raise typer.Exit(130) from None
+    except OperationalError as exc:
+        _fail(f"database unavailable ({exc.orig}).")
+    typer.echo(f"{done} job(s) run")
 
 
 @app.command()
@@ -889,7 +922,8 @@ def label_opportunities(
     verdicts: dict[str, str] = checklist["verdict"]["choices"]
     rows = _scored_opportunities(run)
     labelled = _latest_labels("opportunity", [o.id for o, _, _ in rows])
-    typer.echo(f"{len(rows)} scored opportunities; report: reports/run-{run}/report.md\n"
+    report = report_dir(get_defaults().report, run) / "report.md"
+    typer.echo(f"{len(rows)} scored opportunities; report: {report}\n"
                "answer y / n per question, s to skip the opportunity, q to quit")  # fmt: skip
     db = get_session_factory()
     for o, card, problem in rows:

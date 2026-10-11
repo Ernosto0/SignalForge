@@ -19,8 +19,12 @@
   }
 }
 
+/* Page colours come from Tailwind classes on <body> (light + dark). */
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+/* Claim chips and collapsibles use <details>; hide the default marker everywhere. */
+summary::-webkit-details-marker {
+  display: none;
 }

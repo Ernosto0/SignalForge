@@ -402,10 +402,12 @@ backend/
     text.py              # Turkish-aware normalisation (I/ı/İ/i casefold) for dedupe + quote matching
     queries.py           # search-query cleanup + Turkish near-dup check (query_gen, agents/loop.py)
     packs.py             # market pack loader + source registry lookup
-    api/                 # FastAPI app + routes (health exists)
+    api/                 # FastAPI app: deps, schemas, routes (health, agents, plans, runs, jobs,
+                         # opportunities, sources) — contract in m8-spec.md
     agents/              # base.py, loop.py, registry.py (AGENTS → STAGES), one module per agent
     pipeline/
       runner.py          # ordering, resume, --from, budget enforcement
+      jobs.py            # Postgres job queue (SKIP LOCKED) + `signalforge worker`
       context.py         # RunContext: db, llm, search, fetcher, pack, budget, cache mode
       stages/            # plan, query_gen, search, triage, fetch, extract, dedupe, cluster,
                          # shortlist, verify, competitors, buyers, monetization, score, report
@@ -633,6 +635,26 @@ research form, progress (from StageRuns), opportunity cards, detail page, source
 the pipeline proves research quality. Small UI views may be added earlier where they speed up review,
 e.g. a landscape-report viewer in M3.)
 *Agents:* no new agents; the API and UI show progress per agent by grouping StageRuns with `AGENTS`.
+*Spec:* [m8-spec.md](m8-spec.md) (endpoints, response shapes, pages, exit).
+*Progress 2026-10-11:* built. Backend: `jobs` table (migration `b9c3e5f7a1d2`; a partial unique
+index allows one queued/running job per run), `pipeline/jobs.py` (enqueue with the CLI's option
+validation, `SKIP LOCKED` claim, heartbeat thread, stale/interrupted jobs fail their running
+StageRuns and leave the run `failed`, i.e. resumable), `signalforge worker [--once]`, `jobs:` block
+in defaults.yaml; API under `/api`: agents, example plans, runs (create/list/detail with per-agent
+progress, jobs, report files), job cancel, opportunity cards + detail (every referenced claim
+resolved to quotes + URLs, one level of `derived_from`), source explorer with facets. Never returns
+page text or author hashes. `report.out_dir` now resolves against `backend/`, not the cwd.
+Frontend: runs list, research form (seeded from `backend/examples/**/*.plan.yaml`), run page
+(progress per agent, Resume / Re-run agent / Cancel, polling while a job is active), opportunity
+detail with claim chips, source explorer. The planner is still not built: the form edits a plan
+directly. *Exit check:* 308 tests, ruff, `pnpm lint`/`build` green; served end to end:
+re-running `report_writer` on run 22 through the API was picked up by the worker and completed
+($0, cache); a second job on the same run got 409; a new run (#35, customs template, `until:
+query_gen`, $0.008) went queued → running → stopped with agent progress updating; on runs 22 and
+31 every opportunity page renders and all 918 claim chips resolve. Not yet done: a visual pass
+in a browser by a human.
+*Open:* running jobs can't be cancelled (stages aren't interruptible); SIGTERM rarely reaches a
+console process on Windows (Ctrl+C is the tested path); no auth (local, single-user).
 
 Roadmap after V0: V1 evidence-backed discovery (M0–M7) → V1.5 better competitor/buyer research +
 platform adapters → V2 iterative autonomous research + embeddings → V3 continuous market intelligence.

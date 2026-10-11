@@ -344,3 +344,12 @@ report:
   max_bullets_per_section: 6
   excerpt_max_chars: 500
   concurrency: 4
+
+# --- M8 job queue (plan §11 item 11): a Postgres table, claimed with SKIP LOCKED -------------
+
+jobs:
+  poll_s: 5
+  heartbeat_s: 30
+  # A running job whose worker stopped heart-beating this long ago is failed ("worker lost") and
+  # its run left resumable. Well above heartbeat_s: a stage holds no lock, only the thread beats.
+  stale_after_s: 300

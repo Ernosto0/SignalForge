@@ -21,6 +21,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -79,6 +80,36 @@ class StageRun(Base):
     cost_usd: Mapped[Decimal] = mapped_column(Money, default=Decimal(0))
     error: Mapped[str | None] = mapped_column(Text)
     metrics: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+
+
+class Job(Base):
+    """A queued pipeline invocation for a run (plan §11 item 11): Postgres is the queue, workers
+    claim with ``FOR UPDATE SKIP LOCKED`` (pipeline/jobs.py)."""
+
+    __tablename__ = "jobs"
+    __table_args__ = (
+        Index("ix_jobs_status_id", "status", "id"),
+        # At most one active job per run; enqueue maps a violation to "already has a job".
+        Index(
+            "uq_jobs_run_id_active",
+            "run_id",
+            unique=True,
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+    )
+
+    id: Mapped[int] = _pk()
+    run_id: Mapped[int] = _run_fk()
+    created_at: Mapped[datetime] = _created_at()
+    status: Mapped[str] = mapped_column(String(16), default="queued")
+    # queued | running | completed | failed | cancelled
+    # {resume, from_stage, until, agent}: the CLI `run` options (pipeline/jobs.py validates them)
+    args: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    worker_id: Mapped[str | None] = mapped_column(String(128))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error: Mapped[str | None] = mapped_column(Text)
 
 
 # --- collection -----------------------------------------------------------------------------
